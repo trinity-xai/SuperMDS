@@ -10,25 +10,14 @@ import javafx.scene.paint.Color;
 import javafx.stage.Stage;
 
 import java.io.File;
-import java.io.IOException;
 import java.util.Arrays;
-import java.util.Random;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
-import javafx.scene.control.Label;
-import javafx.scene.control.ScrollPane;
-import javafx.scene.control.TextField;
-import javafx.scene.image.Image;
 import javafx.scene.layout.Background;
 import javafx.scene.layout.BackgroundFill;
 import javafx.scene.layout.CornerRadii;
 import javafx.scene.layout.HBox;
-import javafx.scene.layout.Priority;
-import javafx.scene.layout.VBox;
-import javafx.stage.DirectoryChooser;
 /**
  * @author Sean Phillips
  */
@@ -40,15 +29,12 @@ public class SuperMDSApp extends Application {
 
     @Override
     public void init() {
-//        cocoAnnotationPane = new CocoAnnotationPane();
-//        controls = new CocoAnnotationControlBox();
-//        basePathTextField = new TextField("");
-//        controls.imageBasePathProperty.bind(basePathTextField.textProperty());
+
     }
 
     @Override
     public void start(Stage stage) {
-//        BorderPane borderPane = new BorderPane(cocoAnnotationPane);
+
         BorderPane borderPane = new BorderPane();
         borderPane.setBackground(transBack);
         borderPane.addEventHandler(DragEvent.DRAG_OVER, event -> {
@@ -85,26 +71,19 @@ public class SuperMDSApp extends Application {
 //        });
       
         
-//        Button browseButton = new Button("Browse");
-//        browseButton.setOnAction(e -> {
-//            DirectoryChooser dc = new DirectoryChooser();
-//            File f = new File(basePathTextField.getText());
-//            if(f.isDirectory())
-//                dc.setInitialDirectory(f);
-//            dc.setTitle("Browse to imagery base path...");
-//            File dir = dc.showDialog(null);
-//            if(null != dir && dir.isDirectory()) {
-//                basePathTextField.setText(dir.getPath());
-//            }
-//        });
-//        HBox basePathHBox = new HBox(10, browseButton, basePathTextField);
+        Button browseButton = new Button("Test MDS");
+        browseButton.setOnAction(e -> {
+            testMDS();
+        });
+        HBox basePathHBox = new HBox(10, browseButton);
+        basePathHBox.setAlignment(Pos.CENTER);
 //        basePathHBox.setAlignment(Pos.CENTER_LEFT);
 //        HBox.setHgrow(basePathTextField, Priority.ALWAYS);
 //        basePathTextField.setPrefHeight(40);
 //        VBox basePathVBox = new VBox(5, 
 //            new Label("Imagery Base Path"), basePathHBox);
 //        basePathVBox.setPadding(new Insets(5));
-//        borderPane.setTop(basePathVBox);
+        borderPane.setCenter(basePathHBox);
 //        borderPane.setLeft(scrollPane);
         borderPane.getStyleClass().add("trinity-pane");
         
@@ -117,7 +96,9 @@ public class SuperMDSApp extends Application {
         stage.setTitle("SuperMDS");
         stage.setScene(scene);
         stage.show();
-        
+    }
+
+    public void testMDS() {
         int nPoints = 10000;
         int inputDim = 1000;
         int outputDim = 3;
@@ -129,6 +110,8 @@ public class SuperMDSApp extends Application {
 
         startTime = System.nanoTime();
         double[][] distanceMatrix = SuperMDS.ensureSymmetricDistanceMatrix(rawInputData);
+        //normalize
+        double[][] normalizedDistanceMatrix = SuperMDSHelper.normalizeDistancesParallel(distanceMatrix);
         printTotalTime(startTime);
 
         // Optional: Generate synthetic class labels
@@ -161,26 +144,26 @@ public class SuperMDSApp extends Application {
         System.out.println("Running MDS...");
         startTime = System.nanoTime();
 
-        double[][] embedding = SuperMDS.runMDS(distanceMatrix, params);
+        double[][] embeddings = SuperMDS.runMDS(normalizedDistanceMatrix, params);
         printTotalTime(startTime);
         
         // Print first 5 embedded points
         System.out.println("First 5 output coordinates:");
         for (int i = 0; i < 5; i++) {
             System.out.printf("Point %d: (", i);
-            for (int j = 0; j < embedding[i].length; j++) {
-                System.out.printf("%.4f", embedding[i][j]);
-                if (j < embedding[i].length - 1) System.out.print(", ");
+            for (int j = 0; j < embeddings[i].length; j++) {
+                System.out.printf("%.4f", embeddings[i][j]);
+                if (j < embeddings[i].length - 1) System.out.print(", ");
             }
             System.out.println(")");
         }
 
         System.out.println("Computing Error and Stress Metrics...");
         startTime = System.nanoTime();
-        double[][] reconstructed = SuperMDSHelper.computeReconstructedDistances(embedding);
-        double maxError = SuperMDSValidator.maxDistanceError(distanceMatrix, reconstructed);
-        double mse = SuperMDSValidator.meanSquaredError(distanceMatrix, reconstructed);
-        double rawStress = SuperMDSValidator.rawStress(distanceMatrix, reconstructed, weights);
+        double[][] reconstructed = SuperMDSHelper.computeReconstructedDistances(embeddings);
+        double maxError = SuperMDSValidator.maxDistanceError(normalizedDistanceMatrix, reconstructed);
+        double mse = SuperMDSValidator.meanSquaredError(normalizedDistanceMatrix, reconstructed);
+        double rawStress = SuperMDSValidator.rawStress(normalizedDistanceMatrix, reconstructed, weights);
         printTotalTime(startTime);
         
         System.out.printf("Results for SMACOF MDS on synthetic data (%d points, %dD → %dD):\n",
@@ -190,14 +173,14 @@ public class SuperMDSApp extends Application {
         System.out.printf("Raw stress: %.6f\n", rawStress);        
 
         SuperMDSValidator.StressMetrics metrics = 
-            SuperMDSValidator.computeStressMetrics(distanceMatrix, reconstructed);
+            SuperMDSValidator.computeStressMetrics(normalizedDistanceMatrix, reconstructed);
         System.out.println(metrics);  
         
         
         System.out.println("Testing OSE...");
         System.out.println("Generating synthetic test data...");
         startTime = System.nanoTime();
-        double[][] testData = SuperMDSHelper.generateSyntheticData(100, outputDim); // Normally distributed
+        double[][] testData = SuperMDSHelper.generateSyntheticData(100, inputDim); // Normally distributed
         printTotalTime(startTime);
 
 //originalData = raw high-dimensional vectors (e.g. 10000 × 10)
@@ -216,15 +199,20 @@ public class SuperMDSApp extends Application {
 
         for(int i=0;i<testData.length;i++) {
             double[] distances = SuperMDSHelper.distancesToNewPoint(testData[i], rawInputData);
+            double[] normalizedDistances = SuperMDSHelper.normalizeDistances(distances);
+//System.out.println("Max dist to training data: " + Arrays.stream(normalizedDistances).max().getAsDouble());
+//System.out.println("Min dist to training data: " + Arrays.stream(normalizedDistances).min().getAsDouble());            
             double[] embeddedNewPoint = SuperMDS.embedPointOSEParallel(
-                embedding, distances, testDataWeights, params);
-            double oseStress = SuperMDSValidator.computeOSEStress(embedding, embeddedNewPoint, distances);
+                embeddings, normalizedDistances, testDataWeights, params);
+            double oseStress = SuperMDSValidator.computeOSEStress(embeddings, embeddedNewPoint, normalizedDistances);
             System.out.printf("Embedding stress for new point: %.6f%n", oseStress);            
+            double oseGoodnessOfFit = SuperMDSValidator.computeOSEGoodnessOfFit(
+                embeddings, embeddedNewPoint, normalizedDistances);
+            System.out.printf("Goodness of fit for new point: %.6f%n", oseGoodnessOfFit);            
         }
-        printTotalTime(startTime);
-      
+        printTotalTime(startTime);        
     }
-
+    
     public static String totalTimeString(long startTime) {
         long estimatedTime = System.nanoTime() - startTime;
         long totalNanos = estimatedTime;

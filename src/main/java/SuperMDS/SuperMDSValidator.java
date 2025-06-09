@@ -46,6 +46,31 @@ public class SuperMDSValidator {
 
         return result;
     }
+    public static double computeOSEGoodnessOfFit(double[][] embeddings, double[] newPointCoords, double[] distancesToNew) {
+        double stress = 0.0;
+        double totalVar = 0.0;
+
+        for (int i = 0; i < embeddings.length; i++) {
+            double dHat = SuperMDSHelper.euclideanDistance(newPointCoords, embeddings[i]);
+            double diff = distancesToNew[i] - dHat;
+            stress += diff * diff;
+            totalVar += distancesToNew[i] * distancesToNew[i];
+        }
+
+        if (totalVar == 0.0) return 1.0; // perfect fit (edge case)
+        return 1.0 - (stress / totalVar); // normalized goodness-of-fit
+    }    
+    /**
+     * stress = Σᵢ (dᵢ - d̂ᵢ)²
+     * Where:
+     * dᵢ = actual (original) distance from the new point to training point i
+     * d̂ᵢ = reconstructed distance between the new point and point i in the MDS embedding
+     * The stress is simply the sum of squared errors between original and reconstructed distances
+     * @param embeddings
+     * @param newPointCoords
+     * @param distancesToNew
+     * @return computed stress value
+     */
     public static double computeOSEStress(double[][] embeddings, double[] newPointCoords, double[] distancesToNew) {
         double stress = 0.0;
         for (int i = 0; i < embeddings.length; i++) {

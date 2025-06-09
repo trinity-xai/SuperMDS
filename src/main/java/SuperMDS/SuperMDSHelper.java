@@ -1,5 +1,6 @@
 package SuperMDS;
 
+import java.util.Arrays;
 import java.util.Random;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ForkJoinPool;
@@ -68,6 +69,38 @@ public class SuperMDSHelper {
 
         return copy;
     }
+
+    public static double[][] normalizeDistancesParallel(double[][] D) {
+        int n = D.length;
+        double[][] normalized = new double[n][n];
+
+        // Step 1: Find maximum distance (serial — fast and avoids race conditions)
+        double max = Double.NEGATIVE_INFINITY;
+        for (int i = 0; i < n; i++) {
+            for (int j = i + 1; j < n; j++) {
+                if (D[i][j] > max) {
+                    max = D[i][j];
+                }
+            }
+        }
+        double finalMax = max;
+        // Step 2: Normalize distances in parallel
+        IntStream.range(0, n).parallel().forEach(i -> {
+            for (int j = i; j < n; j++) {
+                double val = D[i][j] / finalMax;
+                normalized[i][j] = val;
+                normalized[j][i] = val; // enforce symmetry
+            }
+        });
+
+        return normalized;
+    }
+    
+    public static double[] normalizeDistances(double[] dists) {
+        double max = Arrays.stream(dists).max().orElse(1.0);
+        if (max == 0.0) return dists.clone(); // all zero
+        return Arrays.stream(dists).map(d -> d / max).toArray();
+    }    
     
     // Generate random N x D data
     public static double[][] generateSyntheticData(int n, int dim) {
