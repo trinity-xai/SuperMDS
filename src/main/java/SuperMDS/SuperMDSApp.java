@@ -124,7 +124,7 @@ public class SuperMDSApp extends Application {
         System.out.println("Initializing data, labels, weights and params...");
         long startTime = System.nanoTime();
         // Generate synthetic data
-        double[][] rawInputData = generateSyntheticData(nPoints, inputDim);
+        double[][] rawInputData = SuperMDSHelper.generateSyntheticData(nPoints, inputDim);
         printTotalTime(startTime);
 
         startTime = System.nanoTime();
@@ -133,10 +133,10 @@ public class SuperMDSApp extends Application {
 
         // Optional: Generate synthetic class labels
         startTime = System.nanoTime();
-        int[] labels = generateSyntheticLabels(nPoints, 3); // 3 classes
+        int[] labels = SuperMDSHelper.generateSyntheticLabels(nPoints, 3); // 3 classes
         printTotalTime(startTime);
 
-        // Optional: generate weights... for no weighting use all 1.0s
+        // Optional: generate weights... for equal weighting use all 1.0s
         startTime = System.nanoTime();
         double[][] weights = new double[rawInputData.length][rawInputData.length]; 
         for (int i = 0; i < rawInputData.length; i++) {
@@ -177,10 +177,10 @@ public class SuperMDSApp extends Application {
 
         System.out.println("Computing Error and Stress Metrics...");
         startTime = System.nanoTime();
-        double[][] reconstructed = computeReconstructedDistances(embedding);
-        double maxError = maxDistanceError(distanceMatrix, reconstructed);
-        double mse = meanSquaredError(distanceMatrix, reconstructed);
-        double rawStress = rawStress(distanceMatrix, reconstructed, weights);
+        double[][] reconstructed = SuperMDSHelper.computeReconstructedDistances(embedding);
+        double maxError = SuperMDSValidator.maxDistanceError(distanceMatrix, reconstructed);
+        double mse = SuperMDSValidator.meanSquaredError(distanceMatrix, reconstructed);
+        double rawStress = SuperMDSValidator.rawStress(distanceMatrix, reconstructed, weights);
         printTotalTime(startTime);
         
         System.out.printf("Results for SMACOF MDS on synthetic data (%d points, %dD → %dD):\n",
@@ -197,7 +197,7 @@ public class SuperMDSApp extends Application {
         System.out.println("Testing OSE...");
         System.out.println("Generating synthetic test data...");
         startTime = System.nanoTime();
-        double[][] testData = generateSyntheticData(100, outputDim); // Normally distributed
+        double[][] testData = SuperMDSHelper.generateSyntheticData(100, outputDim); // Normally distributed
         printTotalTime(startTime);
 
 //originalData = raw high-dimensional vectors (e.g. 10000 × 10)
@@ -215,120 +215,16 @@ public class SuperMDSApp extends Application {
         Arrays.fill(testDataWeights, 1.0);
 
         for(int i=0;i<testData.length;i++) {
-            double[] distances = distancesToNewPoint(testData[i], rawInputData);
+            double[] distances = SuperMDSHelper.distancesToNewPoint(testData[i], rawInputData);
             double[] embeddedNewPoint = SuperMDS.embedPointOSEParallel(
                 embedding, distances, testDataWeights, params);
-            double oseStress = computeOSEStress(embedding, embeddedNewPoint, distances);
+            double oseStress = SuperMDSValidator.computeOSEStress(embedding, embeddedNewPoint, distances);
             System.out.printf("Embedding stress for new point: %.6f%n", oseStress);            
         }
         printTotalTime(startTime);
       
     }
-    /**
-     * Computes Euclidean distances from a new point to each row in the training dataset.
-     *
-     * @param newPoint     The new point as a 1D array (length = dim).
-     * @param trainingData The training dataset as a 2D array (shape: n x dim).
-     * @return A 1D array of distances from the new point to each training point.
-     */
-    public static double[] distancesToNewPoint(double[] newPoint, double[][] trainingData) {
-        int n = trainingData.length;
-        double[] distances = new double[n];
 
-        for (int i = 0; i < n; i++) {
-            distances[i] = SuperMDS.euclideanDistance(newPoint, trainingData[i]);
-        }
-
-        return distances;
-    }
-    public static double[][] computeReconstructedDistances(double[][] embedding) {
-        int n = embedding.length;
-        double[][] distances = new double[n][n];
-
-        for (int i = 0; i < n; i++) {
-            for (int j = i + 1; j < n; j++) {
-                double dist = 0.0;
-                for (int d = 0; d < embedding[i].length; d++) {
-                    double diff = embedding[i][d] - embedding[j][d];
-                    dist += diff * diff;
-                }
-                dist = Math.sqrt(dist);
-                distances[i][j] = dist;
-                distances[j][i] = dist; // ensure symmetry
-            }
-        }
-
-        return distances;
-    } 
-    public static double computeOSEStress(double[][] embeddings, double[] newPointCoords, double[] distancesToNew) {
-        double stress = 0.0;
-        for (int i = 0; i < embeddings.length; i++) {
-            double dHat = SuperMDS.euclideanDistance(newPointCoords, embeddings[i]);
-            double diff = distancesToNew[i] - dHat;
-            stress += diff * diff;
-        }
-        return stress;
-    }
-    
-    public static double maxDistanceError(double[][] D, double[][] reconstructed) {
-        int n = D.length;
-        double maxError = 0.0;
-        for (int i = 0; i < n; i++) {
-            for (int j = i + 1; j < n; j++) {
-                double error = Math.abs(D[i][j] - reconstructed[i][j]);
-                maxError = Math.max(maxError, error);
-            }
-        }
-        return maxError;
-    }
-
-    public static double meanSquaredError(double[][] D, double[][] reconstructed) {
-        int n = D.length;
-        double sum = 0.0;
-        int count = 0;
-        for (int i = 0; i < n; i++) {
-            for (int j = i + 1; j < n; j++) {
-                double diff = D[i][j] - reconstructed[i][j];
-                sum += diff * diff;
-                count++;
-            }
-        }
-        return sum / count;
-    }
-
-    public static double rawStress(double[][] D, double[][] reconstructed, double[][] weights) {
-        int n = D.length;
-        double stress = 0.0;
-        for (int i = 0; i < n; i++) {
-            for (int j = i + 1; j < n; j++) {
-                double diff = reconstructed[i][j] - D[i][j];
-                double w = (weights != null) ? weights[i][j] : 1.0;
-                stress += w * diff * diff;
-            }
-        }
-        return stress;
-    }
-    
-    // Generate random N x D data
-    public static double[][] generateSyntheticData(int n, int dim) {
-        double[][] data = new double[n][dim];
-        Random rand = new Random(42); // deterministic seed
-
-        for (int i = 0; i < n; i++)
-            for (int j = 0; j < dim; j++)
-                data[i][j] = rand.nextGaussian(); // normal distribution
-
-        return data;
-    }
-
-    // Generate synthetic integer class labels (0 to numClasses-1)
-    public static int[] generateSyntheticLabels(int n, int numClasses) {
-        int[] labels = new int[n];
-        Random rand = new Random(42);
-        for (int i = 0; i < n; i++)
-            labels[i] = rand.nextInt(numClasses);
-        return labels;
-    }
     public static String totalTimeString(long startTime) {
         long estimatedTime = System.nanoTime() - startTime;
         long totalNanos = estimatedTime;
