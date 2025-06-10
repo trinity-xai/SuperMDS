@@ -102,29 +102,46 @@ public class SuperMDSApp extends Application {
         int nPoints = 10000;
         int inputDim = 1000;
         int outputDim = 3;
-        System.out.println("Initializing data, labels, weights and params...");
+        int numberOfLandmarks = 100;
+        System.out.println("Initializing data...");
         long startTime = System.nanoTime();
         // Generate synthetic data
         double[][] rawInputData = SuperMDSHelper.generateSyntheticData(nPoints, inputDim);
         printTotalTime(startTime);
-
-        startTime = System.nanoTime();
-        double[][] distanceMatrix = SuperMDS.ensureSymmetricDistanceMatrix(rawInputData);
-        //normalize
-        double[][] normalizedDistanceMatrix = SuperMDSHelper.normalizeDistancesParallel(distanceMatrix);
-        printTotalTime(startTime);
-
-        // Optional: Generate synthetic class labels
-        startTime = System.nanoTime();
-        int[] labels = SuperMDSHelper.generateSyntheticLabels(nPoints, 3); // 3 classes
-        printTotalTime(startTime);
-
+        
         // Optional: generate weights... for equal weighting use all 1.0s
+        System.out.println("Initializing weights...");
         startTime = System.nanoTime();
         double[][] weights = new double[rawInputData.length][rawInputData.length]; 
         for (int i = 0; i < rawInputData.length; i++) {
             Arrays.fill(weights[i], 1.0);
         }
+        printTotalTime(startTime);        
+        
+        System.out.println("ensuring Symmetric Distance Matrix and normalizing...");
+        startTime = System.nanoTime();
+        double[][] symmetricDistanceMatrix = SuperMDS.ensureSymmetricDistanceMatrix(rawInputData);
+        //normalize
+        double[][] normalizedDistanceMatrix = SuperMDSHelper.normalizeDistancesParallel(symmetricDistanceMatrix);
+        printTotalTime(startTime);        
+
+        System.out.println("Testing Landmark MDS...");
+        startTime = System.nanoTime();
+        //double[][] classicalEmbeddings = SuperMDS.classicalMDS(symmetricDistanceMatrix, outputDim);
+        double[][] normalizedInput = SuperMDSHelper.maxNormalize(rawInputData);
+        double[][] landmarkEmbeddings = SuperMDS.canonicalLandmarkMDS(normalizedInput,
+            outputDim, numberOfLandmarks, true, 42);
+        printTotalTime(startTime);        
+
+        System.out.println("Computing Error and Stress Metrics for Landmark MDS...");
+        startTime = System.nanoTime();
+        SuperMDSValidator.logStressMetrics(normalizedInput, landmarkEmbeddings);        
+        printTotalTime(startTime);
+
+        // Optional: Generate synthetic class labels
+        System.out.println("Initializing Labels...");
+        startTime = System.nanoTime();
+        int[] labels = SuperMDSHelper.generateSyntheticLabels(nPoints, 3); // 3 classes
         printTotalTime(startTime);
         
         // Build params
@@ -147,16 +164,16 @@ public class SuperMDSApp extends Application {
         double[][] embeddings = SuperMDS.runMDS(normalizedDistanceMatrix, params);
         printTotalTime(startTime);
         
-        // Print first 5 embedded points
-        System.out.println("First 5 output coordinates:");
-        for (int i = 0; i < 5; i++) {
-            System.out.printf("Point %d: (", i);
-            for (int j = 0; j < embeddings[i].length; j++) {
-                System.out.printf("%.4f", embeddings[i][j]);
-                if (j < embeddings[i].length - 1) System.out.print(", ");
-            }
-            System.out.println(")");
-        }
+//        // Print first 5 embedded points
+//        System.out.println("First 5 output coordinates:");
+//        for (int i = 0; i < 5; i++) {
+//            System.out.printf("Point %d: (", i);
+//            for (int j = 0; j < embeddings[i].length; j++) {
+//                System.out.printf("%.4f", embeddings[i][j]);
+//                if (j < embeddings[i].length - 1) System.out.print(", ");
+//            }
+//            System.out.println(")");
+//        }
 
         System.out.println("Computing Error and Stress Metrics...");
         startTime = System.nanoTime();
@@ -172,15 +189,15 @@ public class SuperMDSApp extends Application {
         System.out.printf("MSE:       %.6f\n", mse);
         System.out.printf("Raw stress: %.6f\n", rawStress);        
 
-        SuperMDSValidator.StressMetrics metrics = 
+        SuperMDSValidator.StressMetrics smacofStressMetrics = 
             SuperMDSValidator.computeStressMetrics(normalizedDistanceMatrix, reconstructed);
-        System.out.println(metrics);  
+        System.out.println(smacofStressMetrics);  
         
         
         System.out.println("Testing OSE...");
         System.out.println("Generating synthetic test data...");
         startTime = System.nanoTime();
-        double[][] testData = SuperMDSHelper.generateSyntheticData(100, inputDim); // Normally distributed
+        double[][] testData = SuperMDSHelper.generateSyntheticData(5, inputDim); // Normally distributed
         printTotalTime(startTime);
 
 //originalData = raw high-dimensional vectors (e.g. 10000 × 10)

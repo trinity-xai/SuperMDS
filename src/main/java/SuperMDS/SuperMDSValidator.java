@@ -21,7 +21,34 @@ public class SuperMDSValidator {
             );
         }
     }
+    public static void logStressMetrics(double[][] originalHighDim, double[][] embeddedLowDim) {
+        int n = originalHighDim.length;
+        double rawStress = 0;
+        double sumOriginalSq = 0;
+        double sumOriginal = 0;
 
+        for (int i = 0; i < n; i++) {
+            for (int j = i + 1; j < n; j++) {
+                double dOrig = Math.sqrt(SuperMDSHelper.squaredEuclideanDistance(originalHighDim[i], originalHighDim[j]));
+                double dEmbed = Math.sqrt(SuperMDSHelper.squaredEuclideanDistance(embeddedLowDim[i], embeddedLowDim[j]));
+
+                double diff = dOrig - dEmbed;
+                rawStress += diff * diff;
+                sumOriginalSq += dOrig * dOrig;
+                sumOriginal += dOrig;
+            }
+        }
+
+        int pairs = n * (n - 1) / 2;
+        double stress1 = Math.sqrt(rawStress / sumOriginalSq);
+        double stress2 = rawStress / sumOriginal;
+        double gof = 1.0 - stress2;
+
+        System.out.printf("Raw stress: %.6f%n", rawStress);
+        System.out.printf("Stress-1 (Kruskal): %.6f%n", stress1);
+        System.out.printf("Stress-2 (Normalized raw stress): %.6f%n", stress2);
+        System.out.printf("Goodness-of-Fit: %.6f%n", gof);
+    }
     public static StressMetrics computeStressMetrics(double[][] originalDistances, double[][] embeddedDistances) {
         int n = originalDistances.length;
         double sumSquaredDiff = 0.0;

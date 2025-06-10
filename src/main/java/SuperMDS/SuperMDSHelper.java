@@ -69,7 +69,89 @@ public class SuperMDSHelper {
 
         return copy;
     }
+    /**
+     * Normalizes the input data so that each feature has zero mean and unit variance.
+     *
+     * @param data The input data matrix of shape [n][d], where n is the number of samples and d is the number of features.
+     *             This array is modified in-place.
+     * @return The normalized data matrix (same reference as input).
+     */
+    public static double[][] normalizeDataZeroMean(double[][] data) {
+        int n = data.length;
+        if (n == 0) return data;
 
+        int d = data[0].length;
+        double[] means = new double[d];
+        double[] stdDevs = new double[d];
+
+        // Compute mean of each feature
+        for (int j = 0; j < d; j++) {
+            for (int i = 0; i < n; i++) {
+                means[j] += data[i][j];
+            }
+            means[j] /= n;
+        }
+
+        // Compute standard deviation of each feature
+        for (int j = 0; j < d; j++) {
+            for (int i = 0; i < n; i++) {
+                stdDevs[j] += Math.pow(data[i][j] - means[j], 2);
+            }
+            stdDevs[j] = Math.sqrt(stdDevs[j] / n);
+        }
+
+        // Normalize each feature
+        for (int j = 0; j < d; j++) {
+            double std = stdDevs[j] == 0 ? 1e-8 : stdDevs[j]; // avoid divide-by-zero
+            for (int i = 0; i < n; i++) {
+                data[i][j] = (data[i][j] - means[j]) / std;
+            }
+        }
+
+        return data;
+    }
+    /**
+     * Normalizes the input data so that each feature (column) is scaled to the [0, 1] range.
+     * This is done independently for each column using the formula:
+     *     x_norm = (x - min) / (max - min)
+     *
+     * @param data A 2D array of input vectors where data[i][j] is the j-th feature of the i-th sample.
+     * @return A new 2D array of the same shape where each column is normalized to [0, 1].
+     */
+    public static double[][] maxNormalize(double[][] data) {
+        int n = data.length;
+        if (n == 0) return new double[0][];
+        int d = data[0].length;
+
+        double[] min = new double[d];
+        double[] max = new double[d];
+        Arrays.fill(min, Double.POSITIVE_INFINITY);
+        Arrays.fill(max, Double.NEGATIVE_INFINITY);
+
+        // Find min and max for each column
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < d; j++) {
+                double val = data[i][j];
+                if (val < min[j]) min[j] = val;
+                if (val > max[j]) max[j] = val;
+            }
+        }
+
+        // Create normalized output
+        double[][] normalized = new double[n][d];
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < d; j++) {
+                double range = max[j] - min[j];
+                if (range == 0) {
+                    normalized[i][j] = 0.0; // Avoid division by zero, treat constant column as 0
+                } else {
+                    normalized[i][j] = (data[i][j] - min[j]) / range;
+                }
+            }
+        }
+
+        return normalized;
+    }    
     public static double[][] normalizeDistancesParallel(double[][] D) {
         int n = D.length;
         double[][] normalized = new double[n][n];

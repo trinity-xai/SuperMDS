@@ -64,12 +64,12 @@ public class SuperMDS {
                 return smacofMDS(data, params.outputDim, params.maxIterations, params.tolerance, params.weights,
                         true, params.useStressSampling, params.stressSampleCount);
             case SUPERVISED:
-                return supervisedMDS(data, params.outputDim, params.classLabels, params.alpha);
+                return supervisedSMACOFMDS(data, params.outputDim, params.classLabels, params.alpha);
             case PARALLEL:
                 return smacofMDSParallel(data, params.outputDim, params.maxIterations, params.tolerance,
                         true, params.useStressSampling, params.stressSampleCount);
             case LANDMARK:
-                return landmarkMDS(data, params.outputDim, params.numLandmarks, params.useKMeansForLandmarks, params.randomSeed);
+                return approximateMDSViaLandmarks(data, params.outputDim, params.numLandmarks, params.useKMeansForLandmarks, params.randomSeed);
             default:
                 throw new IllegalArgumentException("Unsupported mode");
         }
@@ -292,7 +292,7 @@ public class SuperMDS {
         return X;
     }
 
-    public static double[][] supervisedMDS(double[][] D, int dim, int[] labels, double alpha) {
+    public static double[][] supervisedSMACOFMDS(double[][] D, int dim, int[] labels, double alpha) {
         int n = D.length;
         double[][] weights = new double[n][n];
         for (int i = 0; i < n; i++) {
@@ -303,8 +303,127 @@ public class SuperMDS {
 
         return smacofMDS(D, dim, 300, 1e-6, weights, true, false, 1000);
     }
+    
+    /**
+     * Performs Canonical Landmark Multidimensional Scaling (MDS) using a subset of landmark points to reduce 
+     * computational complexity for large datasets. It uses eigen-decomposition of the Gram matrix computed from
+     * pairwise distances between landmarks and applies a Nystrom approximation to embed the remaining points.
+     *
+     * @param data               The full input dataset as an array of N data points, each of dimensionality D.
+     * @param dim                The number of dimensions for the target low-dimensional embedding (e.g., 2 or 3).
+     * @param numLandmarks       The number of landmark points to use for the MDS approximation.
+     * @param useKMeansPlusPlus  If {@code true}, selects landmark points using the k-means++ algorithm for better coverage.
+     *                           If {@code false}, selects landmarks uniformly at random.
+     * @param seed               A random seed for reproducibility when selecting landmarks (used in both k-means++ and random modes).
+     *
+     * @return A 2D array of shape [N x dim] containing the embedded coordinates of all input points in the reduced-dimensional space.
+     *         Landmark points are embedded directly from the eigen-decomposition; all other points are approximated using Nystrom extension.
+     */    
+    public static double[][] canonicalLandmarkMDS(double[][] data, int dim, int numLandmarks, boolean useKMeansPlusPlus, int seed) {
+        int n = data.length;
+        int d = data[0].length;
 
-    public static double[][] landmarkMDS(double[][] data, int dim, int numLandmarks, boolean useKMeansPlusPlus, int seed) {
+        // === Step 1: Select landmark points (either randomly or via k-means++) ===
+        double[][] landmarks;
+        int[] landmarkIndices = new int[numLandmarks];
+
+        if (useKMeansPlusPlus) {
+            KMeansPlusPlus kpp = new KMeansPlusPlus(data, numLandmarks, seed);
+            landmarks = kpp.getCentroids();
+            // KMeans++ doesn't return indices; set to -1 as placeholder
+            Arrays.fill(landmarkIndices, -1); 
+        } else {
+            Random rand = new Random(seed);
+            Set<Integer> indices = new HashSet<>();
+            while (indices.size() < numLandmarks)
+                indices.add(rand.nextInt(n));
+
+            landmarks = new double[numLandmarks][d];
+            int idx = 0;
+            for (int i : indices) {
+                landmarks[idx] = data[i];
+                landmarkIndices[idx] = i;
+                idx++;
+            }
+            Arrays.sort(landmarkIndices); // Used for binarySearch below
+        }
+
+        // === Step 2: Compute squared distances between all landmark pairs ===
+        double[][] squaredDistancesForLandmarks = new double[numLandmarks][numLandmarks];
+        for (int i = 0; i < numLandmarks; i++) {
+            for (int j = i; j < numLandmarks; j++) {
+                squaredDistancesForLandmarks[i][j] = squaredDistancesForLandmarks[j][i] = 
+                    SuperMDSHelper.squaredEuclideanDistance(landmarks[i], landmarks[j]);
+            }
+        }        
+        // === Step 3: Double-center squaredDistancesForLandmarks to form the Gram matrix G ===
+        double[] rowMeans = new double[numLandmarks];
+        double totalMean = 0;
+        for (int i = 0; i < numLandmarks; i++) {
+            for (int j = 0; j < numLandmarks; j++) {
+                rowMeans[i] += squaredDistancesForLandmarks[i][j];
+            }
+            rowMeans[i] /= numLandmarks;
+            totalMean += rowMeans[i];
+        }
+        totalMean /= numLandmarks;
+        
+        double[][] gramMatrix = new double[numLandmarks][numLandmarks];
+        for (int i = 0; i < numLandmarks; i++) {
+            double rowMeansI = rowMeans[i];
+            for (int j = 0; j < numLandmarks; j++) {
+                gramMatrix[i][j] = -0.5 * (squaredDistancesForLandmarks[i][j] - rowMeansI - rowMeans[j] + totalMean);
+            }
+        }
+
+        // === Step 4: Eigen-decomposition of Gram matrix  ===
+        RealMatrix realGramMatrix = MatrixUtils.createRealMatrix(gramMatrix);
+        EigenDecomposition eig = new EigenDecomposition(realGramMatrix);
+        double[][] landmarkEmbedding = new double[numLandmarks][dim];
+
+        for (int i = 0; i < dim; i++) {
+            double eigValSqrt = Math.sqrt(Math.max(eig.getRealEigenvalue(i), 0));
+            RealVector eigVec = eig.getEigenvector(i);
+            for (int j = 0; j < numLandmarks; j++) {
+                landmarkEmbedding[j][i] = eigVec.getEntry(j) * eigValSqrt;
+            }
+        }
+
+        // === Step 5: Embed all data points using Nystrom extension ===
+        double[][] embedding = new double[n][dim];
+        for (int i = 0; i < n; i++) {
+            // Check if this point is one of the landmarks (only works for random selection)
+            int landmarkIndex = (useKMeansPlusPlus) ? -1 : Arrays.binarySearch(landmarkIndices, i);
+            if (landmarkIndex >= 0) {
+                // Copy precomputed embedding
+                System.arraycopy(landmarkEmbedding[landmarkIndex], 0, embedding[i], 0, dim);
+            } else {
+                // Interpolate using Nystrom approximation
+                double[] dist = new double[numLandmarks];
+                double meanDist = 0;
+                for (int j = 0; j < numLandmarks; j++) {
+                    dist[j] = SuperMDSHelper.squaredEuclideanDistance(data[i], landmarks[j]);
+                    meanDist += dist[j];
+                }
+                meanDist /= numLandmarks;
+
+                for (int k = 0; k < dim; k++) {
+                    double eigVal = eig.getRealEigenvalue(k);
+                    if (eigVal <= 1e-10) continue;
+                    double coord = 0;
+                    for (int j = 0; j < numLandmarks; j++) {
+                        double centeredDist = -0.5 * (dist[j] - meanDist);
+                        coord += centeredDist * (landmarkEmbedding[j][k] / eigVal);
+                    }
+                    embedding[i][k] = coord;
+                }
+            }
+        }
+
+        return embedding;
+    }
+    //A Nyström approximation to Classical MDS using n × k matrix of centered squared distances to landmarks.
+    public static double[][] approximateMDSViaLandmarks(double[][] data, int dim, int numLandmarks, boolean useKMeansPlusPlus, int seed) {
         int n = data.length;
         int d = data[0].length;
         double[][] landmarks;
