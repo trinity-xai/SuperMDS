@@ -16,7 +16,7 @@ public class SuperMDSValidator {
             return String.format(
                 "Stress-1 (Kruskal): %.6f\n" +
                 "Stress-2 (Normalized raw stress): %.6f\n" +
-                "Goodness-of-Fit: %.6f",
+                "Goodness-of-Fit: %.6f <--------------------",
                 stress1, stress2, goodnessOfFit
             );
         }
@@ -47,7 +47,7 @@ public class SuperMDSValidator {
         System.out.printf("Raw stress: %.6f%n", rawStress);
         System.out.printf("Stress-1 (Kruskal): %.6f%n", stress1);
         System.out.printf("Stress-2 (Normalized raw stress): %.6f%n", stress2);
-        System.out.printf("Goodness-of-Fit: %.6f%n", gof);
+        System.out.printf("Goodness-of-Fit: %.6f <-------------------- %n", gof);
     }
     public static StressMetrics computeStressMetrics(double[][] originalDistances, double[][] embeddedDistances) {
         int n = originalDistances.length;
@@ -73,6 +73,39 @@ public class SuperMDSValidator {
 
         return result;
     }
+public static void computeStressMetricsClassic(double[][] original, double[][] embedded) {
+    int n = original.length;
+    double stressNumerator = 0;
+    double stressDenominator = 0;
+
+    for (int i = 0; i < n; i++) {
+        for (int j = i + 1; j < n; j++) {
+            double dOrig = 0, dEmb = 0;
+            for (int k = 0; k < original[0].length; k++) {
+                double diff = original[i][k] - original[j][k];
+                dOrig += diff * diff;
+            }
+            for (int k = 0; k < embedded[0].length; k++) {
+                double diff = embedded[i][k] - embedded[j][k];
+                dEmb += diff * diff;
+            }
+            dOrig = Math.sqrt(dOrig);
+            dEmb = Math.sqrt(dEmb);
+
+            double diff = dOrig - dEmb;
+            stressNumerator += diff * diff;
+            stressDenominator += dOrig * dOrig;
+        }
+    }
+
+    double stress1 = Math.sqrt(stressNumerator / stressDenominator);
+    double stress2 = stressNumerator / stressDenominator;
+    double gof = 1.0 - stress2;
+
+    System.out.printf("Stress-1 (Kruskal): %.6f\n", stress1);
+    System.out.printf("Stress-2 (Normalized raw stress): %.6f\n", stress2);
+    System.out.printf("Goodness-of-Fit: %.6f\n", gof);
+}    
     public static double computeOSEGoodnessOfFit(double[][] embeddings, double[] newPointCoords, double[] distancesToNew) {
         double stress = 0.0;
         double totalVar = 0.0;

@@ -12,6 +12,45 @@ import java.util.stream.IntStream;
  */
 public class SuperMDSHelper {
     
+    public static double[][] generateSphereData(int numPoints, int embedDim, int seed) {
+        double[][] data = new double[numPoints][embedDim];
+        Random rand = new Random(seed);
+        for (int i = 0; i < numPoints; i++) {
+            double theta = 2 * Math.PI * i / numPoints;
+            double phi = Math.acos(2 * rand.nextDouble() - 1);
+
+            double x = Math.sin(phi) * Math.cos(theta);
+            double y = Math.sin(phi) * Math.sin(theta);
+            double z = Math.cos(phi);
+
+            data[i][0] = x;
+            data[i][1] = y;
+            data[i][2] = z;
+
+            // Add small noise in extra dimensions
+            for (int j = 3; j < embedDim; j++) {
+                data[i][j] = 0.01 * rand.nextGaussian();
+            }
+        }
+        return data;
+    }    
+    
+    public static double[][] computeSquaredEuclideanDistanceMatrix(double[][] data) {
+        int n = data.length;
+        double[][] D = new double[n][n];
+        for (int i = 0; i < n; i++) {
+            for (int j = i; j < n; j++) {
+                double dist = 0.0;
+                for (int k = 0; k < data[i].length; k++) {
+                    double diff = data[i][k] - data[j][k];
+                    dist += diff * diff;
+                }
+                D[i][j] = dist;
+                D[j][i] = dist;
+            }
+        }
+        return D;
+    }    
     public static double euclideanDistance(double[] a, double[] b) {
         double sum = 0.0;
         for (int i = 0; i < a.length; i++) {
@@ -69,6 +108,46 @@ public class SuperMDSHelper {
 
         return copy;
     }
+    /**
+     * Normalizes the input data using Z-score normalization.
+     * <p>
+     * For each feature (column), this method subtracts the mean and divides by the standard deviation,
+     * resulting in each column having zero mean and unit variance. This normalization is commonly used
+     * in distance-based algorithms like MDS, PCA, and clustering to ensure all features contribute equally.
+     *
+     * @param data A 2D array of shape [n][d] where n is the number of data points and d is the dimensionality.
+     * @return A new 2D array of the same shape with Z-score normalized values.
+     */
+    public static double[][] zScoreNormalize(double[][] data) {
+        int n = data.length;          // Number of data points
+        int d = data[0].length;       // Number of dimensions (features)
+        double[][] normalized = new double[n][d]; // Output array for normalized data
+
+        // Iterate over each dimension (column/feature)
+        for (int j = 0; j < d; j++) {
+            double sum = 0;
+            double sumSq = 0;
+
+            // Compute the sum and sum of squares for this feature
+            for (int i = 0; i < n; i++) {
+                sum += data[i][j];
+                sumSq += data[i][j] * data[i][j];
+            }
+
+            // Calculate the mean and standard deviation
+            double mean = sum / n;
+            double variance = sumSq / n - mean * mean;
+            double stdDev = Math.sqrt(variance);
+
+            // Normalize each data point in this dimension
+            for (int i = 0; i < n; i++) {
+                // If stdDev is 0 (constant column), avoid division by zero
+                normalized[i][j] = (data[i][j] - mean) / (stdDev == 0 ? 1 : stdDev);
+            }
+        }
+
+        return normalized;
+    }    
     /**
      * Normalizes the input data so that each feature has zero mean and unit variance.
      *

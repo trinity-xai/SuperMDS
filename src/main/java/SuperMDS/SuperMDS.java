@@ -6,15 +6,15 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
 import java.util.Set;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.atomic.DoubleAdder;
 import java.util.stream.IntStream;
+import org.apache.commons.math3.linear.Array2DRowRealMatrix;
 import org.apache.commons.math3.linear.EigenDecomposition;
 import org.apache.commons.math3.linear.MatrixUtils;
 import org.apache.commons.math3.linear.RealMatrix;
 import org.apache.commons.math3.linear.RealVector;
 import org.apache.commons.math3.linear.SingularValueDecomposition;
+import org.apache.commons.math3.util.FastMath;
 
 public class SuperMDS {
 
@@ -75,37 +75,58 @@ public class SuperMDS {
         }
     }
 
+    /**
+     * Classical Multidimensional Scaling (MDS).
+     * Computes a low-dimensional embedding from a full squared distance matrix using eigendecomposition.
+     *
+     * @param D   A symmetric n × n matrix of squared Euclidean distances between points.
+     * @param dim The target number of dimensions for the embedding.
+     * @return A matrix of shape [n][dim] with the low-dimensional coordinates.
+     */
     public static double[][] classicalMDS(double[][] D, int dim) {
-        int n = D.length;
-        double[][] B = new double[n][n];
-        double[] rowMeans = new double[n];
-        double totalMean = 0;
+       int n = D.length;
+       double[][] B = new double[n][n];
 
-        for (int i = 0; i < n; i++) {
-            rowMeans[i] = Arrays.stream(D[i]).average().orElse(0);
-            totalMean += rowMeans[i];
-        }
-        totalMean /= n;
+       // Compute row and column means
+       double[] rowMeans = new double[n];
+       double[] colMeans = new double[n];
+       double totalMean = 0;
 
-        for (int i = 0; i < n; i++) {
-            for (int j = 0; j < n; j++) {
-                B[i][j] = -0.5 * (D[i][j] - rowMeans[i] - rowMeans[j] + totalMean);
-            }
-        }
+       for (int i = 0; i < n; i++) {
+           for (int j = 0; j < n; j++) {
+               rowMeans[i] += D[i][j];
+               colMeans[j] += D[i][j];
+               totalMean += D[i][j];
+           }
+       }
+       for (int i = 0; i < n; i++) {
+           rowMeans[i] /= n;
+           colMeans[i] /= n;
+       }
+       totalMean /= (n * n);
 
-        RealMatrix matrix = MatrixUtils.createRealMatrix(B);
-        EigenDecomposition eig = new EigenDecomposition(matrix);
-        double[][] result = new double[n][dim];
+       // Compute B (double-centered matrix)
+       for (int i = 0; i < n; i++) {
+           for (int j = 0; j < n; j++) {
+               B[i][j] = -0.5 * (D[i][j] - rowMeans[i] - colMeans[j] + totalMean);
+           }
+       }
 
-        for (int i = 0; i < dim; i++) {
-            double sqrtEig = Math.sqrt(Math.max(eig.getRealEigenvalue(i), 0));
-            RealVector ev = eig.getEigenvector(i);
-            for (int j = 0; j < n; j++) {
-                result[j][i] = ev.getEntry(j) * sqrtEig;
-            }
-        }
-        return result;
-    }
+       // Eigen-decomposition
+       RealMatrix Bmat = MatrixUtils.createRealMatrix(B);
+       EigenDecomposition eig = new EigenDecomposition(Bmat);
+       double[][] X = new double[n][dim];
+       for (int i = 0; i < dim; i++) {
+           double eigVal = eig.getRealEigenvalue(i);
+           if (eigVal < 0) continue;
+           double scale = Math.sqrt(eigVal);
+           RealVector eigVec = eig.getEigenvector(i);
+           for (int j = 0; j < n; j++) {
+               X[j][i] = eigVec.getEntry(j) * scale;
+           }
+       }
+       return X;
+   }
 
     public static double[][] smacofMDS(double[][] D, int dim, int maxIter, double tolerance,
             double[][] weights, boolean earlyExitOnStressIncrease, boolean useStressSampling, int stressSampleSize) {
@@ -303,7 +324,112 @@ public class SuperMDS {
 
         return smacofMDS(D, dim, 300, 1e-6, weights, true, false, 1000);
     }
-    
+
+    public static double[][] computeLandmarkMDS(double[][] data, int dim, int numLandmarks, boolean useKMeansPlusPlus, int seed) {
+        int n = data.length;
+        int d = data[0].length;
+
+        // Select landmark points
+        double[][] landmarks;
+        int[] landmarkIndices = new int[numLandmarks];
+        if (useKMeansPlusPlus) {
+            KMeansPlusPlus kpp = new KMeansPlusPlus(data, numLandmarks, seed);
+            landmarks = kpp.getCentroids();
+            // KMeans++ doesn't return indices; set to -1 as placeholder
+            for (int i = 0; i < numLandmarks; i++) {
+                landmarkIndices[i] = -1;
+            }
+        } else {
+            java.util.Random rand = new java.util.Random(seed);
+            java.util.Set<Integer> indices = new java.util.HashSet<>();
+            while (indices.size() < numLandmarks) {
+                indices.add(rand.nextInt(n));
+            }
+            landmarks = new double[numLandmarks][d];
+            int idx = 0;
+            for (int i : indices) {
+                landmarks[idx] = data[i];
+                landmarkIndices[idx] = i;
+                idx++;
+            }
+            java.util.Arrays.sort(landmarkIndices); // Used for binarySearch below
+        }
+
+        // Compute squared distances between all landmark pairs
+        double[][] squaredDistancesForLandmarks = new double[numLandmarks][numLandmarks];
+        for (int i = 0; i < numLandmarks; i++) {
+            for (int j = i; j < numLandmarks; j++) {
+                squaredDistancesForLandmarks[i][j] = squaredDistancesForLandmarks[j][i] =
+                    SuperMDSHelper.squaredEuclideanDistance(landmarks[i], landmarks[j]);
+            }
+        }
+
+        // Double-center squaredDistancesForLandmarks to form the Gram matrix G
+        double[] rowMeans = new double[numLandmarks];
+        double[] colMeans = new double[numLandmarks];
+        double totalMean = 0;
+        for (int i = 0; i < numLandmarks; i++) {
+            for (int j = 0; j < numLandmarks; j++) {
+                rowMeans[i] += squaredDistancesForLandmarks[i][j];
+                colMeans[j] += squaredDistancesForLandmarks[i][j];
+            }
+        }
+        for (int i = 0; i < numLandmarks; i++) {
+            rowMeans[i] /= numLandmarks;
+            colMeans[i] /= numLandmarks;
+            totalMean += rowMeans[i];
+        }
+        totalMean /= numLandmarks;
+        double[][] gramMatrix = new double[numLandmarks][numLandmarks];
+        for (int i = 0; i < numLandmarks; i++) {
+            for (int j = 0; j < numLandmarks; j++) {
+                gramMatrix[i][j] = -0.5 * (squaredDistancesForLandmarks[i][j] - rowMeans[i] - colMeans[j] + totalMean);
+            }
+        }
+
+        // Eigen-decomposition of Gram matrix
+        RealMatrix realGramMatrix = new Array2DRowRealMatrix(gramMatrix);
+        EigenDecomposition eig = new EigenDecomposition(realGramMatrix);
+        double[][] landmarkEmbedding = new double[numLandmarks][dim];
+        for (int i = 0; i < dim; i++) {
+            double eigValSqrt = FastMath.sqrt(FastMath.max(eig.getRealEigenvalue(i), 0));
+            double[] eigVec = eig.getEigenvector(i).toArray();
+            for (int j = 0; j < numLandmarks; j++) {
+                landmarkEmbedding[j][i] = eigVec[j] * eigValSqrt;
+            }
+        }
+
+        // Nystrom extension for all data points
+        double[][] embedding = new double[n][dim];
+        for (int i = 0; i < n; i++) {
+            int landmarkIndex = (useKMeansPlusPlus) ? -1 : java.util.Arrays.binarySearch(landmarkIndices, i);
+            if (landmarkIndex >= 0) {
+                // Copy precomputed embedding
+                System.arraycopy(landmarkEmbedding[landmarkIndex], 0, embedding[i], 0, dim);
+            } else {
+                // Interpolate using Nystrom approximation
+                double[] dist = new double[numLandmarks];
+                double meanDist = 0;
+                for (int j = 0; j < numLandmarks; j++) {
+                    dist[j] = SuperMDSHelper.squaredEuclideanDistance(data[i], landmarks[j]);
+                    meanDist += dist[j];
+                }
+                meanDist /= numLandmarks;
+                for (int k = 0; k < dim; k++) {
+                    double eigVal = eig.getRealEigenvalue(k);
+                    if (FastMath.abs(eigVal) < 1e-10) continue;
+                    double coord = 0;
+                    for (int j = 0; j < numLandmarks; j++) {
+                        double centeredDist = -0.5 * (dist[j] - meanDist);
+                        coord += centeredDist * (landmarkEmbedding[j][k] / eigVal);
+                    }
+                    embedding[i][k] = coord;
+                }
+            }
+        }
+
+        return embedding;
+    }
     /**
      * Performs Canonical Landmark Multidimensional Scaling (MDS) using a subset of landmark points to reduce 
      * computational complexity for large datasets. It uses eigen-decomposition of the Gram matrix computed from
@@ -319,7 +445,7 @@ public class SuperMDS {
      * @return A 2D array of shape [N x dim] containing the embedded coordinates of all input points in the reduced-dimensional space.
      *         Landmark points are embedded directly from the eigen-decomposition; all other points are approximated using Nystrom extension.
      */    
-    public static double[][] canonicalLandmarkMDS(double[][] data, int dim, int numLandmarks, boolean useKMeansPlusPlus, int seed) {
+    public static double[][] canonicalLandmarkMDS_OLD(double[][] data, int dim, int numLandmarks, boolean useKMeansPlusPlus, int seed) {
         int n = data.length;
         int d = data[0].length;
 
@@ -358,21 +484,28 @@ public class SuperMDS {
         }        
         // === Step 3: Double-center squaredDistancesForLandmarks to form the Gram matrix G ===
         double[] rowMeans = new double[numLandmarks];
+        double[] colMeans = new double[numLandmarks];
         double totalMean = 0;
+
         for (int i = 0; i < numLandmarks; i++) {
             for (int j = 0; j < numLandmarks; j++) {
                 rowMeans[i] += squaredDistancesForLandmarks[i][j];
+                colMeans[j] += squaredDistancesForLandmarks[i][j];
             }
+        }
+        for (int i = 0; i < numLandmarks; i++) {
             rowMeans[i] /= numLandmarks;
+            colMeans[i] /= numLandmarks;
             totalMean += rowMeans[i];
         }
         totalMean /= numLandmarks;
+
         
         double[][] gramMatrix = new double[numLandmarks][numLandmarks];
         for (int i = 0; i < numLandmarks; i++) {
-            double rowMeansI = rowMeans[i];
             for (int j = 0; j < numLandmarks; j++) {
-                gramMatrix[i][j] = -0.5 * (squaredDistancesForLandmarks[i][j] - rowMeansI - rowMeans[j] + totalMean);
+                //gramMatrix[i][j] = -0.5 * (squaredDistancesForLandmarks[i][j] - rowMeans[i] - rowMeans[j] + totalMean);
+                gramMatrix[i][j] = -0.5 * (squaredDistancesForLandmarks[i][j] - rowMeans[i] - colMeans[j] + totalMean);
             }
         }
 
