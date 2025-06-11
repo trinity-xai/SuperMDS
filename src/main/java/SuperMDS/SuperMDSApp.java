@@ -2,22 +2,21 @@ package SuperMDS;
 
 import javafx.application.Application;
 import javafx.scene.Scene;
-import javafx.scene.input.DragEvent;
-import javafx.scene.input.Dragboard;
-import javafx.scene.input.TransferMode;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.paint.Color;
 import javafx.stage.Stage;
 
-import java.io.File;
 import java.util.Arrays;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
+import javafx.scene.control.Label;
+import javafx.scene.control.Spinner;
 import javafx.scene.layout.Background;
 import javafx.scene.layout.BackgroundFill;
 import javafx.scene.layout.CornerRadii;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.VBox;
 /**
  * @author Sean Phillips
  */
@@ -37,54 +36,58 @@ public class SuperMDSApp extends Application {
 
         BorderPane borderPane = new BorderPane();
         borderPane.setBackground(transBack);
-        borderPane.addEventHandler(DragEvent.DRAG_OVER, event -> {
-            if (ResourceUtils.canDragOver(event)) {
-                event.acceptTransferModes(TransferMode.COPY);
-            } else {
-                event.consume();
-            }
-        });
-        borderPane.addEventHandler(DragEvent.DRAG_DROPPED, event -> {
-            Dragboard db = event.getDragboard();
-            if (db.hasFiles()) {
-                final File file = db.getFiles().get(0);
-//                try {
-////                    if (CocoAnnotationFile.isCocoAnnotationFile(file)) {
-////                        System.out.println("Detected CocoAnnotation File...");
-////                        loadCocoFile(file);
-////                        controls.populateControls(cocoObject);
-//                    }
-//                } catch (Exception ex) {
-//                    Logger.getLogger(SuperMDSApp.class.getName()).log(Level.SEVERE, null, ex);
-//                }
-            }
-        });
-//        ScrollPane scrollPane = new ScrollPane(controls);
-//        // hide scrollpane scrollbars
-//        scrollPane.setVbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
-//        scrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
-//        scrollPane.setPadding(Insets.EMPTY); 
-//        scrollPane.setPannable(true);
+
+        Spinner<Integer> numPointsSpinner = new Spinner(100, 10000, 100, 100);
+        numPointsSpinner.setEditable(true);
+        numPointsSpinner.setPrefWidth(100);
+
+        VBox numPoints = new VBox(5, 
+            new Label("Number of Points"), 
+            numPointsSpinner
+        );
         
-//        controls.heightProperty().addListener(cl-> {
-//            scrollPane.setVvalue(scrollPane.getVmax());
-//        });
-      
+        Spinner<Integer> inputDimensionsSpinner = new Spinner(3, 1000, 100, 5);
+        inputDimensionsSpinner.setEditable(true);
+        inputDimensionsSpinner.setPrefWidth(100);
+
+        VBox inputDim = new VBox(5, 
+            new Label("Input Dimensions"), 
+            inputDimensionsSpinner
+        );
+
+        Spinner<Integer> outputDimensionsSpinner = new Spinner(2, 1000, 3, 5);
+        outputDimensionsSpinner.setEditable(true);
+        outputDimensionsSpinner.setPrefWidth(100);        
         
-        Button browseButton = new Button("Test MDS");
-        browseButton.setOnAction(e -> {
-            testMDS();
+        VBox outputDim = new VBox(5, 
+            new Label("Output Dimensions"), 
+            outputDimensionsSpinner
+        );
+        
+        Spinner<Integer> numLandmarksSpinner = new Spinner(2, 1000, 10, 10);
+        numLandmarksSpinner.setEditable(true);
+        numLandmarksSpinner.setPrefWidth(100); 
+        
+        VBox numLandmarks = new VBox(5, 
+            new Label("Number of Landmarks"), 
+            numLandmarksSpinner
+        );
+
+        Button testButton = new Button("Test MDS");
+        testButton.setOnAction(e -> {
+            testMDS(
+                numPointsSpinner.getValue(), 
+                inputDimensionsSpinner.getValue(),
+                outputDimensionsSpinner.getValue(),
+                numLandmarksSpinner.getValue()
+            );
         });
-        HBox basePathHBox = new HBox(10, browseButton);
-        basePathHBox.setAlignment(Pos.CENTER);
-//        basePathHBox.setAlignment(Pos.CENTER_LEFT);
-//        HBox.setHgrow(basePathTextField, Priority.ALWAYS);
-//        basePathTextField.setPrefHeight(40);
-//        VBox basePathVBox = new VBox(5, 
-//            new Label("Imagery Base Path"), basePathHBox);
-//        basePathVBox.setPadding(new Insets(5));
-        borderPane.setCenter(basePathHBox);
-//        borderPane.setLeft(scrollPane);
+
+        VBox centerVBox = new VBox(10, 
+            testButton, numPoints, inputDim, outputDim, numLandmarks
+        );
+        centerVBox.setAlignment(Pos.CENTER);
+        borderPane.setCenter(centerVBox);
         borderPane.getStyleClass().add("trinity-pane");
         
         Scene scene = new Scene(borderPane, 600, 600, Color.BLACK);
@@ -98,14 +101,14 @@ public class SuperMDSApp extends Application {
         stage.show();
     }
 
-    public void testMDS() {
-        int nPoints = 100;
-        int inputDim = 10;
-        int outputDim = 3;
-        int numberOfLandmarks = 10;
+    public void testMDS(int nPoints, int inputDim, int outputDim, int numberOfLandmarks) {
+//        int nPoints = 100;
+//        int inputDim = 10;
+//        int outputDim = 3;
+//        int numberOfLandmarks = 10;
         long startTime = System.nanoTime();
         // Generate synthetic data
-        double[][] rawInputData = SuperMDSHelper.generateSphereData(nPoints, inputDim, 42);
+        double[][] rawInputData = SuperMDSValidator.generateSphereData(nPoints, inputDim, 42);
         printTotalTime(startTime);
         
         // Optional: generate weights... for equal weighting use all 1.0s
@@ -120,7 +123,7 @@ public class SuperMDSApp extends Application {
         // Optional: Generate synthetic class labels
         System.out.println("Initializing Labels...");
         startTime = System.nanoTime();
-        int[] labels = SuperMDSHelper.generateSyntheticLabels(nPoints, 3); // 3 classes
+        int[] labels = SuperMDSValidator.generateSyntheticLabels(nPoints, 3); // 3 classes
         printTotalTime(startTime);
         
         // Build params
@@ -161,28 +164,23 @@ public class SuperMDSApp extends Application {
         SuperMDSValidator.computeStressMetricsClassic(rawInputData, classicalEmbeddings);        
 
         
-        
-        
         System.out.println("Testing Landmark MDS...");
         startTime = System.nanoTime();
-        //double[][] classicalEmbeddings = SuperMDS.classicalMDS(symmetricDistanceMatrix, outputDim);
-//        double[][] normalizedInput = SuperMDSHelper.zScoreNormalize(rawInputData);
-        double[][] landmarkEmbeddings = SuperMDS.computeLandmarkMDS(rawInputData,
-            outputDim, numberOfLandmarks, false, 42);
+        double[][] landmarkEmbeddings = SuperMDS.landmarkMDS(
+            rawInputData, outputDim, numberOfLandmarks, false, 42);
         printTotalTime(startTime);        
-
-//        System.out.println("Computing Error and Stress Metrics for Landmark MDS...");
-//        double[][] reconstructed = SuperMDSHelper.computeReconstructedDistances(landmarkEmbeddings);
-//        double maxError = SuperMDSValidator.maxDistanceError(rawInputData, reconstructed);
-//        double mse = SuperMDSValidator.meanSquaredError(rawInputData, reconstructed);
-//        double rawStress = SuperMDSValidator.rawStress(rawInputData, reconstructed, weights);
         System.out.printf("Results for Landmark MDS on synthetic data (%d points, %dD → %dD):\n",
                 nPoints, inputDim, outputDim);
-//        System.out.printf("Max error: %.6f\n", maxError);
-//        System.out.printf("MSE:       %.6f\n", mse);
-//        System.out.printf("Raw stress: %.6f\n", rawStress); 
         SuperMDSValidator.computeStressMetricsClassic(rawInputData, landmarkEmbeddings);
-       
+
+        System.out.println("Testing Approximate Landmark MDS...");
+        startTime = System.nanoTime();
+        double[][] approximateLandmarkEmbeddings = SuperMDS.approximateMDSViaLandmarks(
+            rawInputData, outputDim, numberOfLandmarks, false, 42);
+        printTotalTime(startTime);        
+        System.out.printf("Results for Approximate Landmark MDS on synthetic data (%d points, %dD → %dD):\n",
+                nPoints, inputDim, outputDim);
+        SuperMDSValidator.computeStressMetricsClassic(rawInputData, approximateLandmarkEmbeddings);
 
         
         
@@ -217,7 +215,7 @@ public class SuperMDSApp extends Application {
 //        System.out.println("Testing OSE...");
 //        System.out.println("Generating synthetic test data...");
 //        startTime = System.nanoTime();
-//        double[][] testData = SuperMDSHelper.generateSyntheticData(5, inputDim); // Normally distributed
+//        double[][] testData = SuperMDSValidator.generateSyntheticData(5, inputDim); // Normally distributed
 //        printTotalTime(startTime);
 //
 //        // Embed the new points4

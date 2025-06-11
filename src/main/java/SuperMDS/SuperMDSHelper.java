@@ -1,7 +1,11 @@
 package SuperMDS;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ForkJoinPool;
 import java.util.stream.IntStream;
@@ -12,29 +16,28 @@ import java.util.stream.IntStream;
  */
 public class SuperMDSHelper {
     
-    public static double[][] generateSphereData(int numPoints, int embedDim, int seed) {
-        double[][] data = new double[numPoints][embedDim];
-        Random rand = new Random(seed);
-        for (int i = 0; i < numPoints; i++) {
-            double theta = 2 * Math.PI * i / numPoints;
-            double phi = Math.acos(2 * rand.nextDouble() - 1);
+    public static List<int[]> sampleIndexPairs(int n, int sampleSize) {
+        Random rand = new Random(42); // or pass via Params
+        Set<Long> seen = new HashSet<>();
+        List<int[]> pairs = new ArrayList<>(sampleSize);
+        int attempts = 0;
 
-            double x = Math.sin(phi) * Math.cos(theta);
-            double y = Math.sin(phi) * Math.sin(theta);
-            double z = Math.cos(phi);
-
-            data[i][0] = x;
-            data[i][1] = y;
-            data[i][2] = z;
-
-            // Add small noise in extra dimensions
-            for (int j = 3; j < embedDim; j++) {
-                data[i][j] = 0.01 * rand.nextGaussian();
+        while (pairs.size() < sampleSize && attempts < sampleSize * 10) {
+            int i = rand.nextInt(n);
+            int j = rand.nextInt(n);
+            if (i == j) {
+                continue;
             }
+
+            long key = ((long) Math.min(i, j) << 32) | Math.max(i, j);
+            if (seen.add(key)) {
+                pairs.add(new int[]{i, j});
+            }
+            attempts++;
         }
-        return data;
+
+        return pairs;
     }    
-    
     public static double[][] computeSquaredEuclideanDistanceMatrix(double[][] data) {
         int n = data.length;
         double[][] D = new double[n][n];
@@ -51,6 +54,18 @@ public class SuperMDSHelper {
         }
         return D;
     }    
+    public static double[][] pairwiseDistances(double[][] X) {
+        int n = X.length;
+        double[][] D = new double[n][n];
+        for (int i = 0; i < n; i++) {
+            for (int j = i + 1; j < n; j++) {
+                double dist = squaredEuclideanDistance(X[i], X[j]);
+                D[i][j] = D[j][i] = Math.sqrt(dist);
+            }
+        }
+        return D;
+    }    
+    
     public static double euclideanDistance(double[] a, double[] b) {
         double sum = 0.0;
         for (int i = 0; i < a.length; i++) {
@@ -263,26 +278,7 @@ public class SuperMDSHelper {
         return Arrays.stream(dists).map(d -> d / max).toArray();
     }    
     
-    // Generate random N x D data
-    public static double[][] generateSyntheticData(int n, int dim) {
-        double[][] data = new double[n][dim];
-        Random rand = new Random(42); // deterministic seed
 
-        for (int i = 0; i < n; i++)
-            for (int j = 0; j < dim; j++)
-                data[i][j] = rand.nextGaussian(); // normal distribution
-
-        return data;
-    }
-
-    // Generate synthetic integer class labels (0 to numClasses-1)
-    public static int[] generateSyntheticLabels(int n, int numClasses) {
-        int[] labels = new int[n];
-        Random rand = new Random(42);
-        for (int i = 0; i < n; i++)
-            labels[i] = rand.nextInt(numClasses);
-        return labels;
-    }
     /**
      * Computes Euclidean distances from a new point to each row in the training dataset.
      *

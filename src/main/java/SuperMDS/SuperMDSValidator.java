@@ -1,5 +1,7 @@
 package SuperMDS;
 
+import java.util.Random;
+
 /**
  *
  * @author Sean Phillips
@@ -21,34 +23,7 @@ public class SuperMDSValidator {
             );
         }
     }
-    public static void logStressMetrics(double[][] originalHighDim, double[][] embeddedLowDim) {
-        int n = originalHighDim.length;
-        double rawStress = 0;
-        double sumOriginalSq = 0;
-        double sumOriginal = 0;
 
-        for (int i = 0; i < n; i++) {
-            for (int j = i + 1; j < n; j++) {
-                double dOrig = Math.sqrt(SuperMDSHelper.squaredEuclideanDistance(originalHighDim[i], originalHighDim[j]));
-                double dEmbed = Math.sqrt(SuperMDSHelper.squaredEuclideanDistance(embeddedLowDim[i], embeddedLowDim[j]));
-
-                double diff = dOrig - dEmbed;
-                rawStress += diff * diff;
-                sumOriginalSq += dOrig * dOrig;
-                sumOriginal += dOrig;
-            }
-        }
-
-        int pairs = n * (n - 1) / 2;
-        double stress1 = Math.sqrt(rawStress / sumOriginalSq);
-        double stress2 = rawStress / sumOriginal;
-        double gof = 1.0 - stress2;
-
-        System.out.printf("Raw stress: %.6f%n", rawStress);
-        System.out.printf("Stress-1 (Kruskal): %.6f%n", stress1);
-        System.out.printf("Stress-2 (Normalized raw stress): %.6f%n", stress2);
-        System.out.printf("Goodness-of-Fit: %.6f <-------------------- %n", gof);
-    }
     public static StressMetrics computeStressMetrics(double[][] originalDistances, double[][] embeddedDistances) {
         int n = originalDistances.length;
         double sumSquaredDiff = 0.0;
@@ -104,7 +79,7 @@ public static void computeStressMetricsClassic(double[][] original, double[][] e
 
     System.out.printf("Stress-1 (Kruskal): %.6f\n", stress1);
     System.out.printf("Stress-2 (Normalized raw stress): %.6f\n", stress2);
-    System.out.printf("Goodness-of-Fit: %.6f\n", gof);
+    System.out.printf("Goodness-of-Fit: %.6f  <--------------------  \n", gof);
 }    
     public static double computeOSEGoodnessOfFit(double[][] embeddings, double[] newPointCoords, double[] distancesToNew) {
         double stress = 0.0;
@@ -178,5 +153,47 @@ public static void computeStressMetricsClassic(double[][] original, double[][] e
             }
         }
         return stress;
+    }    
+    public static double[][] generateSphereData(int numPoints, int embedDim, int seed) {
+        double[][] data = new double[numPoints][embedDim];
+        Random rand = new Random(seed);
+        for (int i = 0; i < numPoints; i++) {
+            double theta = 2 * Math.PI * i / numPoints;
+            double phi = Math.acos(2 * rand.nextDouble() - 1);
+
+            double x = Math.sin(phi) * Math.cos(theta);
+            double y = Math.sin(phi) * Math.sin(theta);
+            double z = Math.cos(phi);
+
+            data[i][0] = x;
+            data[i][1] = y;
+            data[i][2] = z;
+
+            // Add small noise in extra dimensions
+            for (int j = 3; j < embedDim; j++) {
+                data[i][j] = 0.01 * rand.nextGaussian();
+            }
+        }
+        return data;
+    }   
+    // Generate random N x D data
+    public static double[][] generateSyntheticData(int n, int dim) {
+        double[][] data = new double[n][dim];
+        Random rand = new Random(42); // deterministic seed
+
+        for (int i = 0; i < n; i++)
+            for (int j = 0; j < dim; j++)
+                data[i][j] = rand.nextGaussian(); // normal distribution
+
+        return data;
+    }
+
+    // Generate synthetic integer class labels (0 to numClasses-1)
+    public static int[] generateSyntheticLabels(int n, int numClasses) {
+        int[] labels = new int[n];
+        Random rand = new Random(42);
+        for (int i = 0; i < n; i++)
+            labels[i] = rand.nextInt(numClasses);
+        return labels;
     }    
 }
