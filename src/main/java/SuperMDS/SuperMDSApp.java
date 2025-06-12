@@ -1,5 +1,7 @@
 package SuperMDS;
 
+import SuperMDS.SuperMDSAnchors.AnchorSetRecord;
+import SuperMDS.SuperMDSAnchors.Strategy;
 import javafx.application.Application;
 import javafx.scene.Scene;
 import javafx.scene.layout.BorderPane;
@@ -16,6 +18,7 @@ import javafx.scene.layout.Background;
 import javafx.scene.layout.BackgroundFill;
 import javafx.scene.layout.CornerRadii;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.Pane;
 import javafx.scene.layout.VBox;
 /**
  * @author Sean Phillips
@@ -45,8 +48,9 @@ public class SuperMDSApp extends Application {
             new Label("Number of Points"), 
             numPointsSpinner
         );
+        numPoints.setPrefWidth(200);
         
-        Spinner<Integer> inputDimensionsSpinner = new Spinner(3, 1000, 100, 5);
+        Spinner<Integer> inputDimensionsSpinner = new Spinner(3, 1000, 10, 5);
         inputDimensionsSpinner.setEditable(true);
         inputDimensionsSpinner.setPrefWidth(100);
 
@@ -87,10 +91,10 @@ public class SuperMDSApp extends Application {
             testButton, numPoints, inputDim, outputDim, numLandmarks
         );
         centerVBox.setAlignment(Pos.CENTER);
-        borderPane.setCenter(centerVBox);
+        borderPane.setCenter(new Pane(centerVBox));
         borderPane.getStyleClass().add("trinity-pane");
         
-        Scene scene = new Scene(borderPane, 600, 600, Color.BLACK);
+        Scene scene = new Scene(borderPane, 300, 600, Color.BLACK);
 
         //Make everything pretty
         String CSS = StyleResourceProvider.getResource("styles.css").toExternalForm();
@@ -182,10 +186,6 @@ public class SuperMDSApp extends Application {
                 nPoints, inputDim, outputDim);
         SuperMDSValidator.computeStressMetricsClassic(rawInputData, approximateLandmarkEmbeddings);
 
-        
-        
-        
-        
         // Run MDS
         System.out.println("Running SMACOF MDS...");
         startTime = System.nanoTime();
@@ -236,6 +236,16 @@ public class SuperMDSApp extends Application {
 //            System.out.printf("Goodness-of-Fit for new point: %.6f <-------------------- %n", oseGoodnessOfFit);            
 //        }
 //        printTotalTime(startTime);        
+        
+        AnchorSetRecord anchorSet = SuperMDSAnchors.selectAnchors(rawInputData, 10, Strategy.KMEANS_PLUS_PLUS, 42);
+        double [][] landmarksLowD = SuperMDSAnchors.extractByIndices(embeddings, anchorSet.indices());
+        
+        double[] reconstructedHighD = SuperMDSInverter.invertViaMultilateration(
+            anchorSet.anchors(),
+            landmarksLowD,
+            new double [] {0.1, 0.2, 0.3}
+        );
+        System.out.println("Reconstructed Inverse point: " + Arrays.toString(reconstructedHighD));
     }
     
     public static String totalTimeString(long startTime) {
