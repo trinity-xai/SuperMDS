@@ -237,15 +237,25 @@ public class SuperMDSApp extends Application {
 //        }
 //        printTotalTime(startTime);        
         
-        AnchorSetRecord anchorSet = SuperMDSAnchors.selectAnchors(rawInputData, 10, Strategy.KMEANS_PLUS_PLUS, 42);
+        AnchorSetRecord anchorSet = SuperMDSAnchors.selectAnchors(rawInputData, numberOfLandmarks, Strategy.KMEANS_PLUS_PLUS, 42);
         double [][] landmarksLowD = SuperMDSAnchors.extractByIndices(embeddings, anchorSet.indices());
         
-        double[] reconstructedHighD = SuperMDSInverter.invertViaMultilateration(
-            anchorSet.anchors(),
-            landmarksLowD,
-            new double [] {0.1, 0.2, 0.3}
+        double [][] inverseMappedData = new double[embeddings.length][embeddings[0].length];
+
+        for(int i=0;i<rawInputData.length; i++) {
+            double[] reconstructedHighD = SuperMDSInverter.invertViaMultilateration(
+                anchorSet.anchors(),
+                landmarksLowD,
+                embeddings[i]
+            );
+            //System.out.println("Reconstructed Inverse point: " + Arrays.toString(reconstructedHighD));
+            inverseMappedData[i] = Arrays.copyOf(reconstructedHighD, reconstructedHighD.length);
+        }
+
+        SuperMDSValidator.ValidationResults results = SuperMDSValidator.validateInversion(
+            rawInputData, inverseMappedData, anchorSet.anchors()
         );
-        System.out.println("Reconstructed Inverse point: " + Arrays.toString(reconstructedHighD));
+        System.out.println(results.toString());
     }
     
     public static String totalTimeString(long startTime) {

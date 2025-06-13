@@ -48,39 +48,39 @@ public class SuperMDSValidator {
 
         return result;
     }
-public static void computeStressMetricsClassic(double[][] original, double[][] embedded) {
-    int n = original.length;
-    double stressNumerator = 0;
-    double stressDenominator = 0;
+    public static void computeStressMetricsClassic(double[][] original, double[][] embedded) {
+        int n = original.length;
+        double stressNumerator = 0;
+        double stressDenominator = 0;
 
-    for (int i = 0; i < n; i++) {
-        for (int j = i + 1; j < n; j++) {
-            double dOrig = 0, dEmb = 0;
-            for (int k = 0; k < original[0].length; k++) {
-                double diff = original[i][k] - original[j][k];
-                dOrig += diff * diff;
-            }
-            for (int k = 0; k < embedded[0].length; k++) {
-                double diff = embedded[i][k] - embedded[j][k];
-                dEmb += diff * diff;
-            }
-            dOrig = Math.sqrt(dOrig);
-            dEmb = Math.sqrt(dEmb);
+        for (int i = 0; i < n; i++) {
+            for (int j = i + 1; j < n; j++) {
+                double dOrig = 0, dEmb = 0;
+                for (int k = 0; k < original[0].length; k++) {
+                    double diff = original[i][k] - original[j][k];
+                    dOrig += diff * diff;
+                }
+                for (int k = 0; k < embedded[0].length; k++) {
+                    double diff = embedded[i][k] - embedded[j][k];
+                    dEmb += diff * diff;
+                }
+                dOrig = Math.sqrt(dOrig);
+                dEmb = Math.sqrt(dEmb);
 
-            double diff = dOrig - dEmb;
-            stressNumerator += diff * diff;
-            stressDenominator += dOrig * dOrig;
+                double diff = dOrig - dEmb;
+                stressNumerator += diff * diff;
+                stressDenominator += dOrig * dOrig;
+            }
         }
-    }
 
-    double stress1 = Math.sqrt(stressNumerator / stressDenominator);
-    double stress2 = stressNumerator / stressDenominator;
-    double gof = 1.0 - stress2;
+        double stress1 = Math.sqrt(stressNumerator / stressDenominator);
+        double stress2 = stressNumerator / stressDenominator;
+        double gof = 1.0 - stress2;
 
-    System.out.printf("Stress-1 (Kruskal): %.6f\n", stress1);
-    System.out.printf("Stress-2 (Normalized raw stress): %.6f\n", stress2);
-    System.out.printf("Goodness-of-Fit: %.6f  <--------------------  \n", gof);
-}    
+        System.out.printf("Stress-1 (Kruskal): %.6f\n", stress1);
+        System.out.printf("Stress-2 (Normalized raw stress): %.6f\n", stress2);
+        System.out.printf("Goodness-of-Fit: %.6f  <--------------------  \n", gof);
+    }    
     public static double computeOSEGoodnessOfFit(double[][] embeddings, double[] newPointCoords, double[] distancesToNew) {
         double stress = 0.0;
         double totalVar = 0.0;
@@ -115,6 +115,160 @@ public static void computeStressMetricsClassic(double[][] original, double[][] e
         }
         return stress;
     }
+    
+    /**
+     * Computes the mean reconstruction error (mean squared error) between the original
+     * high-dimensional vectors and their reconstructed versions after dimensionality
+     * reduction and inverse transformation.
+     * <p>
+     * This metric evaluates how well the inverse mapping process is able to recover
+     * the original high-dimensional structure from a low-dimensional embedding.
+     * It computes the average squared Euclidean distance between corresponding points
+     * in the original and reconstructed spaces:
+     * <pre>
+     * error = (1 / n) * Σ_{i=1 to n} ||original[i] - reconstructed[i]||^2
+     * </pre>
+     * where n is the number of points, and each ||·|| is the Euclidean norm.
+     * <p>
+     * A lower value indicates better reconstruction fidelity, while a higher value
+     * implies a less accurate inversion.
+     *
+     * @param original       The original high-dimensional data points (n × d).
+     * @param reconstructed  The reconstructed high-dimensional points (n × d),
+     *                       typically obtained by applying an inverse transform to
+     *                       their low-dimensional embeddings.
+     * @return               The mean squared reconstruction error across all points.
+     */
+    public static double meanReconstructionError(double[][] original, double[][] reconstructed) {
+        int n = original.length;
+        int d = original[0].length;
+        double totalError = 0;
+
+        for (int i = 0; i < n; i++) {
+            double error = 0;
+            for (int j = 0; j < d; j++) {
+                double diff = original[i][j] - reconstructed[i][j];
+                error += diff * diff;
+            }
+            totalError += error;
+        }
+
+        return totalError / n;
+    }
+
+    /**
+     * Computes the round-trip consistency error between original and reconstructed anchor points
+     * after dimensionality reduction and inversion.
+     * <p>
+     * This method measures how well the pairwise distances between anchor points are preserved
+     * after projecting them to a low-dimensional space and then reconstructing them back to the
+     * high-dimensional space. It calculates the sum of squared differences between the original
+     * and reconstructed pairwise distances:
+     * <pre>
+     * error = Σ_{i < j} (||originalHigh[i] - originalHigh[j]|| - ||anchors[i] - anchors[j]||)^2
+     * </pre>
+     * This metric is useful for assessing the geometric fidelity of MDS inversion with respect to
+     * a selected set of anchor points.
+     *
+     * @param originalHigh  The original high-dimensional coordinates of the anchor points (k × d).
+     * @param embeddedLow   The low-dimensional projections of the anchor points (k × dim).
+     * @param anchors       The reconstructed high-dimensional coordinates (after inverse mapping).
+     * @return              The total round-trip consistency error between original and reconstructed anchors.
+     */
+    public static double roundTripAnchorConsistency(
+            double[][] originalHigh, double[][] embeddedLow, double[][] anchors) {
+        int n = originalHigh.length;
+        int k = anchors.length;
+        double totalError = 0;
+
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < k; j++) {
+                double origDist = SuperMDSHelper.euclideanDistance(originalHigh[i], anchors[j]);
+                double reconDist = SuperMDSHelper.euclideanDistance(embeddedLow[i], anchors[j]);
+                double diff = origDist - reconDist;
+                totalError += diff * diff;
+            }
+        }
+
+        return totalError / (n * k);
+    }
+
+    /**
+     * Computes the inverse stress between two high-dimensional datasets.
+     * <p>
+     * This metric measures how well pairwise distances are preserved between the original
+     * and reconstructed (inverse-mapped) data. It is analogous to classical MDS stress,
+     * but applied in reverse to evaluate the distortion introduced by the inverse mapping.
+     * <p>
+     * Formally, for each pair of points {@code (i, j)}, the method computes the squared difference
+     * between the Euclidean distance in the original space and the reconstructed space:
+     * <pre>
+     * stress = Σ_{i < j} (||original_i - original_j|| - ||reconstructed_i - reconstructed_j||)^2
+     * </pre>
+     * 
+     * @param original      The original high-dimensional data array (n × d).
+     * @param reconstructed The reconstructed data array after inverse mapping (n × d).
+     * @return              The total inverse stress value as a double.
+     */
+    public static double inverseStress(double[][] original, double[][] reconstructed) {
+        int n = original.length;
+        double totalStress = 0;
+
+        for (int i = 0; i < n; i++) {
+            for (int j = i + 1; j < n; j++) {
+                double origDist = SuperMDSHelper.euclideanDistance(original[i], original[j]);
+                double reconDist = SuperMDSHelper.euclideanDistance(reconstructed[i], reconstructed[j]);
+                double diff = origDist - reconDist;
+                totalStress += diff * diff;
+            }
+        }
+
+        return totalStress / (n * (n - 1) / 2.0);
+    }
+
+    /**
+     * Evaluates the quality of an inverse MDS approximation by computing a set of validation metrics:
+     * <ul>
+     *     <li><b>Mean Reconstruction Error</b>: Measures the average squared distance between the original
+     *         high-dimensional vectors and the reconstructed ones.</li>
+     *     <li><b>Round-Trip Anchor Consistency</b>: Compares distances from each point to anchor points
+     *         before and after the inverse mapping, measuring distortion introduced by the round trip.</li>
+     *     <li><b>Inverse Stress</b>: A stress-like metric computed over all pairwise distances between points
+     *         in the original and reconstructed high-dimensional spaces.</li>
+     * </ul>
+     *
+     * @param original      The original high-dimensional data (n × d).
+     * @param reconstructed The inverse-mapped approximation of the original data (n × d).
+     * @param anchors       The subset of reference points (k × d) used for round-trip consistency evaluation.
+     * @return              A {@link ValidationResults} object containing all three validation metrics.
+     */    
+    public static ValidationResults validateInversion(
+        double[][] original, double[][] reconstructed, double[][] anchors) {
+
+        ValidationResults results = new ValidationResults();
+        results.meanReconstructionError = meanReconstructionError(original, reconstructed);
+        results.roundTripAnchorConsistency = roundTripAnchorConsistency(original, reconstructed, anchors);
+        results.inverseStress = inverseStress(original, reconstructed);
+
+        return results;
+    }
+
+    /**
+     * Helper class to store validation results.
+     */
+    public static class ValidationResults {
+        public double meanReconstructionError;
+        public double roundTripAnchorConsistency;
+        public double inverseStress;
+
+        @Override
+        public String toString() {
+            return String.format(
+                "Reconstruction Error: %.6f\nRound-Trip Anchor Consistency: %.6f\nInverse Stress: %.6f",
+                meanReconstructionError, roundTripAnchorConsistency, inverseStress
+            );
+        }
+    }    
     
     public static double maxDistanceError(double[][] D, double[][] reconstructed) {
         int n = D.length;
