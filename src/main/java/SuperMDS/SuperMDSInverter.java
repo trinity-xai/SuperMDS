@@ -35,20 +35,29 @@ import org.apache.commons.math3.util.Pair;
 public class SuperMDSInverter {
 
     /**
-     * Approximates the high-dimensional coordinates of a point given its
-     * low-dimensional embedding using multilateration with a set of landmark points.
-     * This version includes L2 regularization to improve stability.
+     * Approximates the high-dimensional coordinates of a point given its low-dimensional embedding
+     * using non-linear multilateration based on a set of anchor points and their corresponding embeddings.
+     * <p>
+     * This method solves an inverse MDS problem by minimizing the discrepancy between:
+     * <ul>
+     *   <li>the distances from the low-dimensional point to embedded anchors, and</li>
+     *   <li>the distances from the reconstructed high-dimensional point to the original high-dimensional anchors</li>
+     * </ul>
+     * using a Levenberg–Marquardt optimizer. Optional L2 regularization and other solver parameters
+     * are provided via the {@link MultilaterationConfig} object.
+     * </p>
      *
-     * @param anchors         The known high-dimensional coordinates of landmark points (k × D).
-     * @param embedded        The corresponding low-dimensional coordinates of the same landmarks (k × d).
-     * @param pointToInvert   The low-dimensional point to invert (d-dimensional).
-     * @return                The estimated high-dimensional coordinates of the input point (D-dimensional).
+     * @param anchors         The known high-dimensional coordinates of landmark (anchor) points (shape: k × D)
+     * @param embedded        The corresponding low-dimensional MDS embeddings of the same landmarks (shape: k × d)
+     * @param pointToInvert   The low-dimensional point to invert back into high-dimensional space (shape: d)
+     * @param config          Configuration object specifying optimization behavior and regularization
+     * @return                The estimated high-dimensional coordinates of the input point (shape: D)
      */
     public static double[] invertViaMultilateration(
-            double[][] anchors,
-            double[][] embedded,
-            double[] pointToInvert
-    ) {
+        double[][] anchors,
+        double[][] embedded,
+        double[] pointToInvert,
+        MultilaterationConfig config ) {
         int D = anchors[0].length;  // high-dimensional space dimension
         int k = anchors.length;     // number of landmark points
 
@@ -71,7 +80,8 @@ public class SuperMDSInverter {
         double[] start = Arrays.copyOf(mu, D);  // use prior as starting point
 
         // ----- Step 3: Regularization strength (tune this parameter) -----
-        double lambda = 0.1;
+        //double lambda = 0.1;
+        double lambda = config.regularizationLambda;
 
         // ----- Step 4: Define value + Jacobian in a unified model -----
         MultivariateJacobianFunction model = (RealVector point) -> {
@@ -89,10 +99,14 @@ public class SuperMDSInverter {
             }
             
             // --- Regularization residuals: λ * (x - μ) ---
+            double distScale = 1.0;
+            double regScale = Math.sqrt((double) k / D); // optional scaling            
             for (int j = 0; j < D; j++) {
                 residuals[k + j] = lambda * (x[j] - mu[j]);
                 for (int l = 0; l < D; l++) {
-                    jacobian[k + j][l] = (l == j) ? lambda : 0.0;
+                    //jacobian[k + j][l] = (l == j) ? lambda : 0.0;
+                    residuals[k + j] = lambda * regScale * (x[j] - mu[j]);
+                    jacobian[k + j][l] = (l == j) ? lambda * regScale : 0.0;
                 }
             }
             

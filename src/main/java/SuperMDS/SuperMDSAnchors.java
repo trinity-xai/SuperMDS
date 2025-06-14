@@ -9,6 +9,7 @@ import java.util.Random;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import org.apache.commons.math3.linear.Array2DRowRealMatrix;
 import org.apache.commons.math3.linear.ArrayRealVector;
 import org.apache.commons.math3.linear.EigenDecomposition;
 import org.apache.commons.math3.linear.MatrixUtils;
@@ -27,6 +28,8 @@ import org.apache.commons.math3.stat.correlation.Covariance;
  * - KMEANS_PLUS_PLUS: Centroids from k-means++ initialization.
  * - PCA: Points spread along principal component directions.
  * - UNIFORM: Uniformly spaced indices across the dataset.
+ * - FARTHEST_POINT: Emphasize farthest distance points to minimize extrapolation
+ * - BOUNDARY_SENSITIVE: iterative boundary finding... can't remember but its good
  */
 public class SuperMDSAnchors {
     /** Available strategies for selecting anchor points. */
@@ -34,11 +37,13 @@ public class SuperMDSAnchors {
         RANDOM,
         KMEANS_PLUS_PLUS,
         PCA,
-        UNIFORM
+        UNIFORM,
+        FARTHEST_POINT,
+        BOUNDARY_SENSITIVE        
     }
-    public record AnchorSetRecord (double[][] anchors, List<Integer> indices){
+    //Just a quick little record to associate selected indices with their vectors
+    public record AnchorSetRecord (double[][] anchors, List<Integer> indices){};
     
-    };
     /**
      * Select anchor points from a dataset using the given strategy.
      *
@@ -58,6 +63,10 @@ public class SuperMDSAnchors {
                 return selectPCAAnchors(data, numAnchors);
             case UNIFORM:
                 return selectUniformAnchors(data, numAnchors);
+            case FARTHEST_POINT:
+                return farthestPointSampling(data, numAnchors);
+            case BOUNDARY_SENSITIVE:
+                return boundarySensitiveSampling(data, numAnchors);                
             default:
                 throw new IllegalArgumentException("Unknown anchor selection strategy.");
         }
@@ -83,8 +92,89 @@ public class SuperMDSAnchors {
 
         return extracted;
     }
-    
 
+    /**
+     * Selects a subset of anchor points from the given dataset using the Farthest Point Sampling (FPS) strategy.
+     * <p>
+     * This method begins by randomly selecting an initial point, and iteratively adds the point that is farthest
+     * from the current set of selected anchors. Distance is measured in the input space using Euclidean distance.
+     * The process continues until the desired number of anchor points is selected.
+     * </p>
+     *
+     * @param data        The input data matrix (shape: N × D), where N is the number of samples and D is the feature dimension.
+     * @param numAnchors  The number of anchor points to select.
+     * @return            An {@link AnchorSetRecord} containing the selected anchor vectors and their corresponding indices in the original dataset.
+     */    
+    public static AnchorSetRecord farthestPointSampling(double[][] data, int numAnchors) {
+        Random rand = new Random(42);
+        List<Integer> selected = new ArrayList<>();
+        boolean[] chosen = new boolean[data.length];
+
+        // Start with a random point
+        int first = rand.nextInt(data.length);
+        selected.add(first);
+        chosen[first] = true;
+
+        double[] minDists = new double[data.length];
+        Arrays.fill(minDists, Double.POSITIVE_INFINITY);
+
+        for (int i = 1; i < numAnchors; i++) {
+            int farthest = -1;
+            double maxDist = -1;
+
+            for (int j = 0; j < data.length; j++) {
+                if (chosen[j]) continue;
+                double dist = SuperMDSHelper.euclideanDistance(data[j], data[selected.get(i - 1)]);
+                minDists[j] = Math.min(minDists[j], dist);
+                if (minDists[j] > maxDist) {
+                    maxDist = minDists[j];
+                    farthest = j;
+                }
+            }
+
+            if (farthest != -1) {
+                selected.add(farthest);
+                chosen[farthest] = true;
+            }
+        }
+        // Map selected indices to data points
+        return new AnchorSetRecord(
+            selected.stream().map(i -> data[i]).toArray(double[][]::new), 
+            selected);
+    }
+    /**
+     * Selects a subset of anchor points that are sensitive to the boundary of the data distribution
+     * by leveraging projections along the first principal component.
+     * <p>
+     * This method computes the first principal axis of the data (via PCA) and ranks all data points
+     * by the absolute magnitude of their projection onto this axis. The top-scoring points—those farthest
+     * from the center along the primary direction of variance—are selected as anchors. This tends to favor
+     * boundary or extreme points that capture the spread of the dataset.
+     * </p>
+     *
+     * @param data        The input data matrix (shape: N × D), where N is the number of samples and D is the feature dimension.
+     * @param numAnchors  The number of anchor points to select.
+     * @return            An {@link AnchorSetRecord} containing the selected anchor vectors and their corresponding indices in the original dataset.
+     */
+    public static AnchorSetRecord boundarySensitiveSampling(double[][] data, int numAnchors) {
+        RealMatrix X = new Array2DRowRealMatrix(data);
+        Covariance cov = new Covariance(X);
+        RealMatrix covMatrix = cov.getCovarianceMatrix();
+        EigenDecomposition eig = new EigenDecomposition(covMatrix);
+        RealVector principal = eig.getEigenvector(0);  // first principal axis
+
+        // Score each point by its projection on principal axis
+        List<Integer> indices = IntStream.range(0, data.length).boxed().collect(Collectors.toList());
+        indices.sort(Comparator.comparingDouble(i -> {
+            return -Math.abs(new ArrayRealVector(data[i]).dotProduct(principal));
+        }));
+
+        // Map selected indices to data points
+        List<Integer> selected = indices.subList(0, Math.min(numAnchors, indices.size()));
+        return new AnchorSetRecord(
+            selected.stream().map(i -> data[i]).toArray(double[][]::new), 
+            selected);        
+    }
     /**
      * Randomly selects a subset of data points as anchors.
      * Ensures no duplicates.

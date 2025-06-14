@@ -9,9 +9,11 @@ import javafx.scene.paint.Color;
 import javafx.stage.Stage;
 
 import java.util.Arrays;
+import javafx.collections.FXCollections;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
+import javafx.scene.control.ChoiceBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.Spinner;
 import javafx.scene.layout.Background;
@@ -77,20 +79,28 @@ public class SuperMDSApp extends Application {
             numLandmarksSpinner
         );
 
+        ChoiceBox<Strategy> inverseAnchorChoiceBox = new ChoiceBox<>(
+            FXCollections.observableArrayList(SuperMDSAnchors.Strategy.values()));
+        VBox inverseAnchors = new VBox(5, 
+            new Label("Inverse Anchor Selection Strategy"),
+            inverseAnchorChoiceBox
+        );
+
         Button testButton = new Button("Test MDS");
         testButton.setOnAction(e -> {
             testMDS(
                 numPointsSpinner.getValue(), 
                 inputDimensionsSpinner.getValue(),
                 outputDimensionsSpinner.getValue(),
-                numLandmarksSpinner.getValue()
+                numLandmarksSpinner.getValue(),
+                inverseAnchorChoiceBox.getValue()
             );
         });
 
         VBox centerVBox = new VBox(10, 
-            testButton, numPoints, inputDim, outputDim, numLandmarks
+            testButton, numPoints, inputDim, outputDim, numLandmarks, inverseAnchors
         );
-        centerVBox.setAlignment(Pos.CENTER);
+        centerVBox.setAlignment(Pos.CENTER_LEFT);
         borderPane.setCenter(new Pane(centerVBox));
         borderPane.getStyleClass().add("trinity-pane");
         
@@ -105,11 +115,7 @@ public class SuperMDSApp extends Application {
         stage.show();
     }
 
-    public void testMDS(int nPoints, int inputDim, int outputDim, int numberOfLandmarks) {
-//        int nPoints = 100;
-//        int inputDim = 10;
-//        int outputDim = 3;
-//        int numberOfLandmarks = 10;
+    public void testMDS(int nPoints, int inputDim, int outputDim, int numberOfLandmarks, Strategy strategy) {
         long startTime = System.nanoTime();
         // Generate synthetic data
         double[][] rawInputData = SuperMDSValidator.generateSphereData(nPoints, inputDim, 42);
@@ -237,16 +243,24 @@ public class SuperMDSApp extends Application {
 //        }
 //        printTotalTime(startTime);        
         
-        AnchorSetRecord anchorSet = SuperMDSAnchors.selectAnchors(rawInputData, numberOfLandmarks, Strategy.KMEANS_PLUS_PLUS, 42);
+        AnchorSetRecord anchorSet = SuperMDSAnchors.selectAnchors(rawInputData, 
+            numberOfLandmarks, strategy, 42);
         double [][] landmarksLowD = SuperMDSAnchors.extractByIndices(embeddings, anchorSet.indices());
         
         double [][] inverseMappedData = new double[embeddings.length][embeddings[0].length];
 
+        MultilaterationConfig config = new MultilaterationConfig();
+       
+        config.regularizationLambda = 0.1;
+        config.maxIterations = 5000;
+        config.maxEvaluations = 5000;
+        
         for(int i=0;i<rawInputData.length; i++) {
             double[] reconstructedHighD = SuperMDSInverter.invertViaMultilateration(
                 anchorSet.anchors(),
                 landmarksLowD,
-                embeddings[i]
+                embeddings[i],
+                config
             );
             //System.out.println("Reconstructed Inverse point: " + Arrays.toString(reconstructedHighD));
             inverseMappedData[i] = Arrays.copyOf(reconstructedHighD, reconstructedHighD.length);
