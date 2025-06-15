@@ -29,11 +29,20 @@ public class MultilaterationConfig {
     public int maxEvaluations = 10000;
 
     /** Regularization strength (lambda) for L2 penalty */
-    public double regularizationLambda = 0.0;
+    public double regularizationLambda = 0.1;
 
     /** Whether to center the initial guess using anchor centroid */
     public boolean useAnchorCentroidStart = true;
 
+    public enum OptimizerType {
+        LEVENBERG_MARQUARDT,
+        GAUSS_NEWTON,
+        BOBYQA,
+        CMAES
+    }
+
+    public OptimizerType optimizer = OptimizerType.LEVENBERG_MARQUARDT;
+    
     // Constructor with defaults
     public MultilaterationConfig() {}
 

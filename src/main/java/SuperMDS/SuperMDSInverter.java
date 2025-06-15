@@ -1,18 +1,30 @@
 package SuperMDS;
+import static SuperMDS.MultilaterationConfig.OptimizerType.BOBYQA;
+import static SuperMDS.MultilaterationConfig.OptimizerType.CMAES;
+import static SuperMDS.MultilaterationConfig.OptimizerType.GAUSS_NEWTON;
 import java.util.Arrays;
-import org.apache.commons.math3.analysis.MultivariateMatrixFunction;
-import org.apache.commons.math3.analysis.MultivariateVectorFunction;
+import org.apache.commons.math3.analysis.MultivariateFunction;
 import org.apache.commons.math3.fitting.leastsquares.LeastSquaresBuilder;
 import org.apache.commons.math3.fitting.leastsquares.LeastSquaresOptimizer;
 import org.apache.commons.math3.fitting.leastsquares.LeastSquaresOptimizer.Optimum;
 import org.apache.commons.math3.fitting.leastsquares.LeastSquaresProblem;
 import org.apache.commons.math3.fitting.leastsquares.LevenbergMarquardtOptimizer;
 import org.apache.commons.math3.fitting.leastsquares.MultivariateJacobianFunction;
+import org.apache.commons.math3.fitting.leastsquares.GaussNewtonOptimizer;
+import org.apache.commons.math3.optim.nonlinear.scalar.noderiv.BOBYQAOptimizer;
+import org.apache.commons.math3.optim.nonlinear.scalar.noderiv.CMAESOptimizer;
 import org.apache.commons.math3.linear.Array2DRowRealMatrix;
 import org.apache.commons.math3.linear.ArrayRealVector;
-import org.apache.commons.math3.linear.RealMatrix;
 import org.apache.commons.math3.linear.RealVector;
+import org.apache.commons.math3.optim.InitialGuess;
+import org.apache.commons.math3.optim.MaxEval;
+import org.apache.commons.math3.optim.PointValuePair;
+import org.apache.commons.math3.optim.SimpleBounds;
+import org.apache.commons.math3.optim.nonlinear.scalar.GoalType;
+import org.apache.commons.math3.optim.nonlinear.scalar.ObjectiveFunction;
+import org.apache.commons.math3.random.MersenneTwister;
 import org.apache.commons.math3.util.Pair;
+
 
 /**
  * SuperMDSInverter provides a method to approximately invert a low-dimensional
@@ -43,7 +55,7 @@ public class SuperMDSInverter {
      *   <li>the distances from the low-dimensional point to embedded anchors, and</li>
      *   <li>the distances from the reconstructed high-dimensional point to the original high-dimensional anchors</li>
      * </ul>
-     * using a Levenberg–Marquardt optimizer. Optional L2 regularization and other solver parameters
+     * using a configuration specified optimizer. Optional L2 regularization and other solver parameters
      * are provided via the {@link MultilaterationConfig} object.
      * </p>
      *
@@ -61,13 +73,13 @@ public class SuperMDSInverter {
         int D = anchors[0].length;  // high-dimensional space dimension
         int k = anchors.length;     // number of landmark points
 
-        // ----- Step 1: Compute Euclidean distances in low-dimensional space -----
+        //Compute Euclidean distances in low-dimensional space
         double[] delta = new double[k];
         for (int i = 0; i < k; i++) {
-            delta[i] = euclideanDistance(pointToInvert, embedded[i]);
+            delta[i] = SuperMDSHelper.euclideanDistance(pointToInvert, embedded[i]);
         }
 
-        // ----- Step 2: Compute the mean of the high-d anchor points (used as prior and init guess) -----
+        //Compute the mean of the high-d anchor points (used as prior and init guess)
         double[] mu = new double[D];
         for (double[] anchor : anchors) {
             for (int j = 0; j < D; j++) {
@@ -79,65 +91,204 @@ public class SuperMDSInverter {
         }
         double[] start = Arrays.copyOf(mu, D);  // use prior as starting point
 
-        // ----- Step 3: Regularization strength (tune this parameter) -----
-        //double lambda = 0.1;
-        double lambda = config.regularizationLambda;
+        // Choose optimizer backend and optimize
+        return optimize(start, anchors, delta, mu, config);
+    }
 
-        // ----- Step 4: Define value + Jacobian in a unified model -----
-        MultivariateJacobianFunction model = (RealVector point) -> {
-            double[] x = point.toArray();
-            double[] residuals = new double[k + D];      // k distance residuals + D regularization terms
-            double[][] jacobian = new double[k + D][D];  // Jacobian of size (k+D) × D
-            
-            // --- Distance residuals: difference between estimated and target distances ---
-            for (int i = 0; i < k; i++) {
-                double dist = euclideanDistance(x, anchors[i]);
-                residuals[i] = dist - delta[i];
-                for (int j = 0; j < D; j++) {
-                    jacobian[i][j] = (x[j] - anchors[i][j]) / (dist + 1e-8);  // numerical stability
-                }
-            }
-            
-            // --- Regularization residuals: λ * (x - μ) ---
-            double distScale = 1.0;
-            double regScale = Math.sqrt((double) k / D); // optional scaling            
-            for (int j = 0; j < D; j++) {
-                residuals[k + j] = lambda * (x[j] - mu[j]);
-                for (int l = 0; l < D; l++) {
-                    //jacobian[k + j][l] = (l == j) ? lambda : 0.0;
-                    residuals[k + j] = lambda * regScale * (x[j] - mu[j]);
-                    jacobian[k + j][l] = (l == j) ? lambda * regScale : 0.0;
-                }
-            }
-            
-            return new Pair<>(new ArrayRealVector(residuals), new Array2DRowRealMatrix(jacobian));
-        };
+    private static double[] optimize(double[] start, double[][] anchors, 
+        double [] delta, double [] mu, MultilaterationConfig config) {
+        int D = anchors[0].length;  // high-dimensional space dimension
+        int k = anchors.length;     // number of landmark points
+        int dim = start.length;
+        LeastSquaresOptimizer optimizer = null;
+        switch (config.optimizer) {
+            case CMAES:
+                CMAESOptimizer cmaes = new CMAESOptimizer(
+                    10000, 1e-12, true, 0, 0,
+                    new MersenneTwister(),
+                    false,
+                    new CombinedConvergenceChecker(1e-6, 1e-8, 1e-6, 1e-8)
+                );
+                //Step 6: Optimize
+                PointValuePair resultCMA = cmaes.optimize(
+                    new MaxEval(config.maxEvaluations),
+                    new ObjectiveFunction(buildScalarObjective(anchors, delta, mu, config.regularizationLambda)),
+                    GoalType.MINIMIZE,
+                    new InitialGuess(start),
+                    SimpleBounds.unbounded(dim),
+                    new CMAESOptimizer.Sigma(getSigma(dim, 0.3)),
+                    new CMAESOptimizer.PopulationSize(4 * dim)
+                );
+                //Step 7: Return the optimized high-dimensional coordinates
+                return resultCMA.getPoint();
 
+            case BOBYQA:
+                BOBYQAOptimizer bobyqa = new BOBYQAOptimizer(dim + 2);  // must be > dim + 1
+                //Step 6: Optimize
+                PointValuePair resultBOBY = bobyqa.optimize(
+                    new MaxEval(config.maxEvaluations),
+                    new ObjectiveFunction(buildScalarObjective(anchors, delta, mu, config.regularizationLambda)),
+                    GoalType.MINIMIZE,
+                    new InitialGuess(start),
+                    SimpleBounds.unbounded(dim)
+                );
+                //Step 7: Return the optimized high-dimensional coordinates
+                return resultBOBY.getPoint();
+            
+            case GAUSS_NEWTON: 
+                optimizer = new GaussNewtonOptimizer();
+            default: 
+                optimizer = new LevenbergMarquardtOptimizer();
+        }        
+        
         // ----- Step 5: Build the regularized least-squares optimization problem -----
         LeastSquaresProblem problem = new LeastSquaresBuilder()
                 .start(start)
-                .model(model)
+                .model(buildJacobianObjective(anchors, delta, mu, config.regularizationLambda))
                 .target(new double[k + D])   // residual target: 0 for both distance and regularization terms
                 .lazyEvaluation(false)
-                .maxEvaluations(10000)
-                .maxIterations(10000)
+                .maxEvaluations(config.maxEvaluations)
+                .maxIterations(config.maxIterations)
                 .build();
-
-        // ----- Step 6: Optimize using Levenberg-Marquardt -----
-        LeastSquaresOptimizer optimizer = new LevenbergMarquardtOptimizer();
-        Optimum optimum = optimizer.optimize(problem);
-
+        //Step 6: Optimize
+        Optimum optimum = optimizer.optimize(problem);        
         // ----- Step 7: Return the optimized high-dimensional coordinates -----
         return optimum.getPoint().toArray();
     }
 
-    
-    private static double euclideanDistance(double[] a, double[] b) {
-        double sum = 0;
-        for (int i = 0; i < a.length; i++) {
-            double d = a[i] - b[i];
-            sum += d * d;
-        }
-        return Math.sqrt(sum);
+    /**
+     * Builds a scalar objective function for inverse MDS via multilateration.
+     * This function measures how well a candidate high-dimensional point preserves
+     * distances to known anchors given low-dimensional distances, with optional L2 regularization.
+     *
+     * @param anchors     High-dimensional coordinates of the anchors (k × D)
+     * @param delta       Low-dimensional distances from the point to embedded anchors (length k)
+     * @param mu          Prior (mean) position of anchors used for regularization (length D)
+     * @param lambda      L2 regularization strength
+     * @return            MultivariateFunction representing the scalar objective to minimize
+     */
+    public static MultivariateFunction buildScalarObjective(
+            double[][] anchors,
+            double[] delta,
+            double[] mu,
+            double lambda
+    ) {
+        int k = anchors.length;
+        int D = anchors[0].length;
+
+        return point -> {
+            double error = 0.0;
+
+            // Distance residuals
+            for (int i = 0; i < k; i++) {
+                double dist = SuperMDSHelper.euclideanDistance(point, anchors[i]);
+                double diff = dist - delta[i];
+                error += diff * diff;
+            }
+
+            // L2 regularization toward mean (optional)
+            if (lambda > 0.0) {
+                for (int j = 0; j < D; j++) {
+                    double diff = point[j] - mu[j];
+                    error += lambda * diff * diff;
+                }
+            }
+
+            return error;
+        };
+    }    
+    /**
+     * Builds a MultivariateJacobianFunction for inverse MDS multilateration using anchor distances
+     * and optional L2 regularization toward the anchor mean.
+     *
+     * @param anchors     High-dimensional coordinates of anchor points (shape: k × D)
+     * @param delta       Low-dimensional distances from the point to embedded anchors (length k)
+     * @param mu          Prior mean location in high-dimensional space (length D)
+     * @param lambda      Regularization strength
+     * @return            MultivariateJacobianFunction to be passed to a least squares optimizer
+     */
+    public static MultivariateJacobianFunction buildJacobianObjective(
+            double[][] anchors,
+            double[] delta,
+            double[] mu,
+            double lambda
+    ) {
+        int k = anchors.length;
+        int D = anchors[0].length;
+
+        return (RealVector input) -> {
+            double[] x = input.toArray();
+
+            double[] residuals = new double[k + D];
+            double[][] jacobian = new double[k + D][D];
+
+            // --- Distance residuals (first k entries) ---
+            for (int i = 0; i < k; i++) {
+                double[] anchor = anchors[i];
+                double dist = SuperMDSHelper.euclideanDistance(x, anchor);
+                double epsilon = 1e-8;
+                double safeDist = Math.max(dist, epsilon);
+
+                residuals[i] = dist - delta[i];
+
+                for (int j = 0; j < D; j++) {
+                    jacobian[i][j] = (x[j] - anchor[j]) / safeDist;
+                }
+            }
+
+            // --- Regularization residuals (last D entries) ---
+            if (lambda > 0.0) {
+                double scale = 1.0;  // You may adjust this based on k/D if needed
+                for (int j = 0; j < D; j++) {
+                    residuals[k + j] = lambda * scale * (x[j] - mu[j]);
+                    jacobian[k + j][j] = lambda * scale;
+                }
+            }
+
+            return new Pair<>(
+                    new ArrayRealVector(residuals),
+                    new Array2DRowRealMatrix(jacobian)
+            );
+        };
     }
+    
+    public static double[] computeInitialGuess(
+        double[][] anchors,        // High-D anchor vectors (k × D)
+        double[][] embedded,       // Low-D anchor embeddings (k × d)
+        double[] pointToInvert     // Low-D point to invert (length d)
+    ) {
+        int k = anchors.length;
+        int D = anchors[0].length;
+
+        double[] weights = new double[k];
+        double weightSum = 0.0;
+
+        // Compute inverse-distance weights
+        for (int i = 0; i < k; i++) {
+            double dist = SuperMDSHelper.euclideanDistance(embedded[i], pointToInvert);
+            weights[i] = 1.0 / (dist + 1e-6);  // Avoid div-by-zero
+            weightSum += weights[i];
+        }
+
+        // Normalize weights
+        for (int i = 0; i < k; i++) {
+            weights[i] /= weightSum;
+        }
+
+        // Weighted sum of anchors
+        double[] guess = new double[D];
+        for (int i = 0; i < k; i++) {
+            for (int j = 0; j < D; j++) {
+                guess[j] += weights[i] * anchors[i][j];
+            }
+        }
+
+        return guess;
+    }
+    
+    private static double[] getSigma(int dim, double scale) {
+        double[] sigma = new double[dim];
+        Arrays.fill(sigma, scale);
+        return sigma;
+    } 
 }

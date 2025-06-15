@@ -1,5 +1,6 @@
 package SuperMDS;
 
+import SuperMDS.MultilaterationConfig.OptimizerType;
 import SuperMDS.SuperMDSAnchors.AnchorSetRecord;
 import SuperMDS.SuperMDSAnchors.Strategy;
 import javafx.application.Application;
@@ -81,9 +82,17 @@ public class SuperMDSApp extends Application {
 
         ChoiceBox<Strategy> inverseAnchorChoiceBox = new ChoiceBox<>(
             FXCollections.observableArrayList(SuperMDSAnchors.Strategy.values()));
+        inverseAnchorChoiceBox.getSelectionModel().selectFirst();
         VBox inverseAnchors = new VBox(5, 
             new Label("Inverse Anchor Selection Strategy"),
             inverseAnchorChoiceBox
+        );
+        ChoiceBox<OptimizerType> optimizerChoiceBox = new ChoiceBox<>(
+            FXCollections.observableArrayList(MultilaterationConfig.OptimizerType.values()));
+        optimizerChoiceBox.getSelectionModel().selectFirst();
+        VBox optimizer = new VBox(5, 
+            new Label("Multilateration Optimizer"),
+            optimizerChoiceBox
         );
 
         Button testButton = new Button("Test MDS");
@@ -93,12 +102,14 @@ public class SuperMDSApp extends Application {
                 inputDimensionsSpinner.getValue(),
                 outputDimensionsSpinner.getValue(),
                 numLandmarksSpinner.getValue(),
-                inverseAnchorChoiceBox.getValue()
+                inverseAnchorChoiceBox.getValue(),
+                optimizerChoiceBox.getValue()
             );
         });
 
         VBox centerVBox = new VBox(10, 
-            testButton, numPoints, inputDim, outputDim, numLandmarks, inverseAnchors
+            testButton, numPoints, inputDim, outputDim, numLandmarks, 
+            inverseAnchors, optimizer
         );
         centerVBox.setAlignment(Pos.CENTER_LEFT);
         borderPane.setCenter(new Pane(centerVBox));
@@ -115,7 +126,8 @@ public class SuperMDSApp extends Application {
         stage.show();
     }
 
-    public void testMDS(int nPoints, int inputDim, int outputDim, int numberOfLandmarks, Strategy strategy) {
+    public void testMDS(int nPoints, int inputDim, int outputDim, int numberOfLandmarks, 
+        Strategy strategy, OptimizerType optimizer) {
         long startTime = System.nanoTime();
         // Generate synthetic data
         double[][] rawInputData = SuperMDSValidator.generateSphereData(nPoints, inputDim, 42);
@@ -251,10 +263,10 @@ public class SuperMDSApp extends Application {
 
         MultilaterationConfig config = new MultilaterationConfig();
        
-        config.regularizationLambda = 0.1;
+        config.regularizationLambda = 0.01;
         config.maxIterations = 5000;
         config.maxEvaluations = 5000;
-        
+        config.optimizer = optimizer;
         for(int i=0;i<rawInputData.length; i++) {
             double[] reconstructedHighD = SuperMDSInverter.invertViaMultilateration(
                 anchorSet.anchors(),
@@ -262,7 +274,6 @@ public class SuperMDSApp extends Application {
                 embeddings[i],
                 config
             );
-            //System.out.println("Reconstructed Inverse point: " + Arrays.toString(reconstructedHighD));
             inverseMappedData[i] = Arrays.copyOf(reconstructedHighD, reconstructedHighD.length);
         }
 
@@ -270,6 +281,13 @@ public class SuperMDSApp extends Application {
             rawInputData, inverseMappedData, anchorSet.anchors()
         );
         System.out.println(results.toString());
+        
+        System.out.println("Sanity Check for Multilateration...");
+        double[] x_orig = anchorSet.anchors()[0];
+        double[] x_emb = embeddings[0];
+        double[] x_recovered = SuperMDSInverter.invertViaMultilateration(
+            anchorSet.anchors(), embeddings, x_emb, config);
+        System.out.println("Error: " + SuperMDSHelper.euclideanDistance(x_orig, x_recovered));
     }
     
     public static String totalTimeString(long startTime) {
