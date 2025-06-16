@@ -2,6 +2,7 @@ package SuperMDS;
 import static SuperMDS.MultilaterationConfig.OptimizerType.BOBYQA;
 import static SuperMDS.MultilaterationConfig.OptimizerType.CMAES;
 import static SuperMDS.MultilaterationConfig.OptimizerType.GAUSS_NEWTON;
+import static SuperMDS.SuperMDSHelper.euclideanDistance;
 import java.util.Arrays;
 import org.apache.commons.math3.analysis.MultivariateFunction;
 import org.apache.commons.math3.fitting.leastsquares.LeastSquaresBuilder;
@@ -15,6 +16,8 @@ import org.apache.commons.math3.optim.nonlinear.scalar.noderiv.BOBYQAOptimizer;
 import org.apache.commons.math3.optim.nonlinear.scalar.noderiv.CMAESOptimizer;
 import org.apache.commons.math3.linear.Array2DRowRealMatrix;
 import org.apache.commons.math3.linear.ArrayRealVector;
+import org.apache.commons.math3.linear.MatrixUtils;
+import org.apache.commons.math3.linear.RealMatrix;
 import org.apache.commons.math3.linear.RealVector;
 import org.apache.commons.math3.optim.InitialGuess;
 import org.apache.commons.math3.optim.MaxEval;
@@ -28,7 +31,8 @@ import org.apache.commons.math3.util.Pair;
 
 /**
  * SuperMDSInverter provides a method to approximately invert a low-dimensional
- * MDS embedding back to its original high-dimensional space using multilateration.
+ * MDS embedding back to its original high-dimensional space using algorithms such
+ * as Multilateration and Pseudo Inverse by Landmark.
  *
  * <p>
  * The inversion is based on estimating the unknown high-dimensional position
@@ -45,7 +49,57 @@ import org.apache.commons.math3.util.Pair;
  *  @author Sean Phillips
  */
 public class SuperMDSInverter {
+    /**
+     * Inverts low-dimensional embedded points using landmark-based pseudoinverse inversion.
+     * 
+     * @param anchorsHD Original high-D anchor points (k × D)
+     * @param anchorsLD Corresponding embedded low-D anchor points (k × d)
+     * @param embeddedPoints Points to invert (n × d)
+     * @param epsilon Small constant to avoid division by zero
+     * @return Approximated high-D points (n × D)
+     */
+    public static double[][] invertViaPseudoinverse(
+        double[][] anchorsHD,
+        double[][] anchorsLD,
+        double[][] embeddedPoints,
+        double epsilon
+    ) {
+        int k = anchorsHD.length;
+        int D = anchorsHD[0].length;
+        int d = anchorsLD[0].length;
+        int n = embeddedPoints.length;
 
+        // Step 1: Compute interpolation weights W ∈ ℝ^{n × k}
+        double[][] W = new double[n][k];
+
+        for (int i = 0; i < n; i++) {
+            double[] xi = embeddedPoints[i];
+            double weightSum = 0.0;
+
+            for (int j = 0; j < k; j++) {
+                double[] anchor = anchorsLD[j];
+                double dist = euclideanDistance(xi, anchor);
+                double w = 1.0 / (dist + epsilon);  // Shepard weights
+                W[i][j] = w;
+                weightSum += w;
+            }
+
+            // Normalize row to sum to 1
+            for (int j = 0; j < k; j++) {
+                W[i][j] /= weightSum;
+            }
+        }
+
+        // Step 2: W (n × k), A_hd (k × D)
+        RealMatrix Wmat = MatrixUtils.createRealMatrix(W);
+        RealMatrix A_hd = MatrixUtils.createRealMatrix(anchorsHD);
+
+        // Step 3: Y = W * A_hd
+        RealMatrix Y = Wmat.multiply(A_hd);
+
+        // Convert back to array
+        return Y.getData();
+    }
     /**
      * Approximates the high-dimensional coordinates of a point given its low-dimensional embedding
      * using non-linear multilateration based on a set of anchor points and their corresponding embeddings.

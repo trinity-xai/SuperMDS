@@ -1,5 +1,8 @@
 package SuperMDS;
 
+import static SuperMDS.SuperMDSHelper.euclideanDistance;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Random;
 
 /**
@@ -270,6 +273,85 @@ public class SuperMDSValidator {
         }
     }    
     
+public static void runPseudoinverseInversionSanityCheck(
+    double[][] highDimPoints,        // Original high-D data (N x D)
+    double[][] lowDimEmbeddings,     // Embedded points from SMACOF (N x d)
+    int[] anchorIndices              // Indices used as anchors
+) {
+    // Step 1: Extract anchors
+    double[][] anchorsHD = Arrays.stream(anchorIndices).mapToObj(i -> highDimPoints[i]).toArray(double[][]::new);
+    double[][] anchorsLD = Arrays.stream(anchorIndices).mapToObj(i -> lowDimEmbeddings[i]).toArray(double[][]::new);
+
+    // Step 2: Invert all points using pseudoinverse
+    double[][] recovered = SuperMDSInverter.invertViaPseudoinverse(
+        anchorsHD, anchorsLD, lowDimEmbeddings, 1e-8
+    );
+
+    // Step 3: Evaluate reconstruction error
+    double totalError = 0.0;
+    double maxError = 0.0;
+    for (int i = 0; i < highDimPoints.length; i++) {
+        double[] x_orig = highDimPoints[i];
+        double[] x_rec = recovered[i];
+        double error = euclideanDistance(x_orig, x_rec);
+        totalError += error * error;
+        maxError = Math.max(maxError, error);
+    }
+
+    double mse = totalError / highDimPoints.length;
+    double rmse = Math.sqrt(mse);
+
+    System.out.println("=== Landmark-Based Inversion Sanity Check ===");
+    System.out.printf("RMSE: %.6f%n", rmse);
+    System.out.printf("Max Error: %.6f%n", maxError);
+}
+
+    /**
+     * Runs a multilateration sanity check by attempting to invert the embedding
+     * of one or more known anchor points and comparing the result to the original.
+     *
+     * @param anchors   High-dimensional anchor points (shape: k × D)
+     * @param embedded  Corresponding low-dimensional embeddings (shape: k × d)
+     * @param config    Inversion configuration
+     * @param indicesToTest List of anchor indices to test (e.g., List.of(0, 1, 2))
+     */
+    public static void runMultilaterationSanityCheck(
+        double[][] anchors,
+        double[][] embedded,
+        MultilaterationConfig config,
+        List<Integer> indicesToTest
+    ) {
+        System.out.println("=== Sanity Check: Multilateration Inversion ===");
+        for (int idx : indicesToTest) {
+            System.out.println("\n--- Anchor Index: " + idx + " ---");
+
+            double[] x_orig = anchors[idx];
+            double[] x_emb = embedded[idx];
+
+            System.out.println("Original anchor (x_orig): " + Arrays.toString(x_orig));
+            System.out.println("Embedded anchor (x_emb): " + Arrays.toString(x_emb));
+
+            double[] x_recovered = SuperMDSInverter.invertViaMultilateration(
+                anchors, embedded, x_emb, config
+            );
+
+            System.out.println("Recovered (x_rec):       " + Arrays.toString(x_recovered));
+            double error = SuperMDSHelper.euclideanDistance(x_orig, x_recovered);
+            System.out.printf("Euclidean Error:         %.6f\n", error);
+        }
+    }
+
+    /**
+     * Convenience overload to test just a single index.
+     */
+    public static void runMultilaterationSanityCheck(
+        double[][] anchors,
+        double[][] embedded,
+        MultilaterationConfig config,
+        int index
+    ) {
+        runMultilaterationSanityCheck(anchors, embedded, config, List.of(index));
+    }    
     public static double maxDistanceError(double[][] D, double[][] reconstructed) {
         int n = D.length;
         double maxError = 0.0;

@@ -10,6 +10,7 @@ import javafx.scene.paint.Color;
 import javafx.stage.Stage;
 
 import java.util.Arrays;
+import java.util.List;
 import javafx.collections.FXCollections;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -264,8 +265,8 @@ public class SuperMDSApp extends Application {
         MultilaterationConfig config = new MultilaterationConfig();
        
         config.regularizationLambda = 0.01;
-        config.maxIterations = 5000;
-        config.maxEvaluations = 5000;
+        config.maxIterations = 10000;
+        config.maxEvaluations = 10000;
         config.optimizer = optimizer;
         for(int i=0;i<rawInputData.length; i++) {
             double[] reconstructedHighD = SuperMDSInverter.invertViaMultilateration(
@@ -288,6 +289,18 @@ public class SuperMDSApp extends Application {
         double[] x_recovered = SuperMDSInverter.invertViaMultilateration(
             anchorSet.anchors(), embeddings, x_emb, config);
         System.out.println("Error: " + SuperMDSHelper.euclideanDistance(x_orig, x_recovered));
+        
+        System.out.println("NEW AND IMPROVED Sanity Checks for Inversions...");
+        //identity test: Set the high-D and low-D space equal and skip MDS. 
+        double[][] sanityAnchors = SuperMDSValidator.generateSphereData(nPoints, inputDim, 42);
+        double[][] sanityEmbeddings = sanityAnchors;  // Identity mapping
+        int[] anchorIndices = new int[] { 0, 2, 4, 6, 8, 10 };       
+        System.out.println("Multilateration Inversion...");
+        SuperMDSValidator.runMultilaterationSanityCheck(
+            sanityAnchors, sanityEmbeddings, config, List.of(0, 1, 2)
+        );       
+        System.out.println("Pseudo Inversion...");
+        SuperMDSValidator.runPseudoinverseInversionSanityCheck(sanityAnchors, sanityEmbeddings, anchorIndices);  // Identity        
     }
     
     public static String totalTimeString(long startTime) {
