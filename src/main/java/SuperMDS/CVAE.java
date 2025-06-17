@@ -1,5 +1,20 @@
 package SuperMDS;
 
+import static SuperMDS.CVAEHelper.add;
+import static SuperMDS.CVAEHelper.clipGradient;
+import static SuperMDS.CVAEHelper.concat;
+import static SuperMDS.CVAEHelper.dot;
+import static SuperMDS.CVAEHelper.dotT;
+import static SuperMDS.CVAEHelper.getKLWeight;
+import static SuperMDS.CVAEHelper.hasNaNsOrInfs;
+import static SuperMDS.CVAEHelper.initMatrix;
+import static SuperMDS.CVAEHelper.initVector;
+import static SuperMDS.CVAEHelper.mseGradient;
+import static SuperMDS.CVAEHelper.mseLoss;
+import static SuperMDS.CVAEHelper.relu;
+import static SuperMDS.CVAEHelper.slice;
+import static SuperMDS.CVAEHelper.updateMatrix;
+import static SuperMDS.CVAEHelper.updateVector;
 import java.util.Arrays;
 import java.util.Random;
 
@@ -27,12 +42,11 @@ public class CVAE {
     private int latentDim;     // Dimensionality of latent space
     private int hiddenDim;     // Number of hidden units in each hidden layer
 
-    private double learningRate = 0.001;
-    private Random rand = new Random();
+    private Random rand;
 
     // === Encoder weights ===
-    private double[][] W_enc1, W_enc2, W_enc3; // Weights for encoder layers
-    private double[] b_enc1, b_enc2, b_enc3;   // Biases for encoder layers
+    private double[][] W_enc1, W_enc2; // Weights for encoder layers
+    private double[] b_enc1, b_enc2;   // Biases for encoder layers
 
     private double[][] W_mu;       // Weights: hiddenDim x latentDim
     private double[] b_mu;         // Biases: latentDim
@@ -48,6 +62,8 @@ public class CVAE {
     private int klWarmupEpochs = 1000;
     private double maxKLWeight = 0.75;
     private double klSharpness = 8.0;
+    private double learningRate = 0.0001;
+    
 
     /**
      * Initialize a new CVAE instance with 3 hidden layers in encoder and
@@ -64,34 +80,36 @@ public class CVAE {
         this.conditionDim = conditionDim;
         this.latentDim = latentDim;
         this.hiddenDim = hiddenDim;
-
+        rand = new Random();
         int encInputDim = inputDim + conditionDim;    // Encoder input: [x | c]
         int decInputDim = latentDim + conditionDim;   // Decoder input: [z | c]
 
         // === Encoder ===
-        W_enc1 = initMatrix(encInputDim, hiddenDim);
+        // Encoder weights (ReLU activations → He initialization)
+        W_enc1 = initMatrix(encInputDim, hiddenDim, true); //Relu us HE init
         b_enc1 = initVector(hiddenDim);
 
-        W_enc2 = initMatrix(hiddenDim, hiddenDim);
+        W_enc2 = initMatrix(hiddenDim, hiddenDim, true); //Relu us HE init
         b_enc2 = initVector(hiddenDim);
 
-        W_enc3 = initMatrix(hiddenDim, hiddenDim);
-        b_enc3 = initVector(hiddenDim);
-
-        W_mu = initMatrix(hiddenDim, latentDim);
+//        W_enc3 = initMatrix(hiddenDim, hiddenDim, true); //Relu us HE init
+//        b_enc3 = initVector(hiddenDim);
+        // Output layers of encoder: linear → Xavier
+        W_mu = initMatrix(hiddenDim, latentDim, false);
         b_mu = initVector(latentDim);
 
-        W_logvar = initMatrix(hiddenDim, latentDim);
+        W_logvar = initMatrix(hiddenDim, latentDim, false);
         b_logvar = initVector(latentDim);
 
         // === Decoder === (2 hidden layers + output)
-        W_dec1 = initMatrix(decInputDim, hiddenDim);
+        // Decoder weights (ReLU activations → He initialization)
+        W_dec1 = initMatrix(decInputDim, hiddenDim, true); //Relu us HE init
         b_dec1 = initVector(hiddenDim);
 
-        W_dec2 = initMatrix(hiddenDim, hiddenDim);
+        W_dec2 = initMatrix(hiddenDim, hiddenDim, true); //Relu us HE init
         b_dec2 = initVector(hiddenDim);
-
-        W_decOut = initMatrix(hiddenDim, inputDim);   // Output layer
+        // Final layer of decoder: assume linear output → Xavier
+        W_decOut = initMatrix(hiddenDim, inputDim, false);   // Output layer, Xavier initialization
         b_decOut = initVector(inputDim);
     }
 
@@ -113,10 +131,12 @@ public class CVAE {
         // Step 3: Hidden layer 2
         double[] h2 = relu(add(dot(h1, W_enc2), b_enc2)); // [hiddenDim]
 
-        // Step 4: Hidden layer 3
-        double[] h3 = relu(add(dot(h2, W_enc3), b_enc3)); // [hiddenDim]
-
-        return h3;
+        return h2;
+        
+//        // Step 4: Hidden layer 3
+//        double[] h3 = relu(add(dot(h2, W_enc3), b_enc3)); // [hiddenDim]
+//
+//        return h3;
     }
 
     /**
@@ -142,7 +162,7 @@ public class CVAE {
         double[] out = add(dot(h2, W_decOut), b_decOut); // [inputDim]
 
         return out;
-    }    
+    }
 
     /**
      * Sample latent vector z from mu and log variance using reparameterization
@@ -199,11 +219,14 @@ public class CVAE {
         // Encoder
         double[] h1 = relu(add(dot(xc, W_enc1), b_enc1));
         double[] h2 = relu(add(dot(h1, W_enc2), b_enc2));
-        double[] h3 = relu(add(dot(h2, W_enc3), b_enc3));
+//        double[] h3 = relu(add(dot(h2, W_enc3), b_enc3));
+//
+//        double[] mu = add(dot(h3, W_mu), b_mu);
+//        double[] logvar = add(dot(h3, W_logvar), b_logvar);
 
-        double[] mu = add(dot(h3, W_mu), b_mu);
-        double[] logvar = add(dot(h3, W_logvar), b_logvar);
-
+        double[] mu = add(dot(h2, W_mu), b_mu);
+        double[] logvar = add(dot(h2, W_logvar), b_logvar);
+        
         double[] safeLogvar = new double[latentDim];
         for (int i = 0; i < latentDim; i++) {
             safeLogvar[i] = Math.max(Math.min(logvar[i], 10.0), -10.0);
@@ -265,27 +288,30 @@ public class CVAE {
         }
 
         // Encoder gradients
-        double[] dmu_dh3 = dotT(dL_dmu, W_mu);
-        double[] dlogvar_dh3 = dotT(dL_dlogvar, W_logvar);
-        double[] dL_dh3 = reluGrad(h3, add(dmu_dh3, dlogvar_dh3));
-        double[] dL_dh2 = reluGrad(h2, dotT(dL_dh3, W_enc3));
+        double[] dmu_dh2 = dotT(dL_dmu, W_mu);
+        double[] dlogvar_dh2 = dotT(dL_dlogvar, W_logvar);
+//        double[] dL_dh3 = reluGrad(h3, add(dmu_dh3, dlogvar_dh3));
+//        double[] dL_dh2 = reluGrad(h2, dotT(dL_dh3, W_enc3));
+
+        double[] dL_dh2 = reluGrad(h2, add(dmu_dh2, dlogvar_dh2));
+
         double[] dL_dh1 = reluGrad(h1, dotT(dL_dh2, W_enc2));
 
         // ===== Gradient Clipping =====
         clipGradient(dL_dxRecon, 5.0);
         clipGradient(dL_dmu, 5.0);
         clipGradient(dL_dlogvar, 5.0);
-        clipGradient(dL_dh3, 5.0);
+//        clipGradient(dL_dh3, 5.0);
         clipGradient(dL_dh2, 5.0);
         clipGradient(dL_dh1, 5.0);
 
         // ===== Parameter Updates =====
         updateParametersDeep(
-                xc, h1, h2, h3,
-                dL_dh1, dL_dh2, dL_dh3,
-                mu, dL_dmu, dL_dlogvar,
-                z, c,
-                d1, d2, dL_dxRecon // No d3
+                xc, h1, h2, 
+                dL_dh1, dL_dh2, 
+                dL_dmu, dL_dlogvar,
+                z, c, d1, d2, 
+                dL_dDec1, dL_dDec2, dL_dxRecon 
         );
 
         currentEpoch++;
@@ -293,108 +319,16 @@ public class CVAE {
     }
 
     /**
-     * Set the current training epoch, used for KL annealing. Should be called
-     * once per epoch from the training loop.
-     *
-     * @param epoch Current epoch number (0-based)
-     */
-    public void setCurrentEpoch(int epoch) {
-        this.currentEpoch = epoch;
-    }
-
-    /**
-     * Sets the number of epochs used to warm up the KL divergence term.
-     *
-     * @param epochs Number of warm-up epochs
-     */
-    public void setKlWarmupEpochs(int epochs) {
-        this.klWarmupEpochs = epochs;
-    }
-
-    /**
-     * Resets the internal training epoch counter (optional if needed).
-     */
-    public void resetEpochCounter() {
-        this.currentEpoch = 0;
-    }
-
-    /**
-     * Compute the current KL annealing weight using a sigmoid ramp-up schedule.
-     * This method gradually increases the weight of the KL divergence term
-     * during training to help the model focus on reconstruction early on and
-     * avoid posterior collapse.
-     *
-     * The sigmoid curve is scaled and shifted to flatten the early growth and
-     * reach a configurable maximum weight (e.g. 0.75) near the end of the
-     * ramp-up period.
-     *
-     * @param epoch Current training epoch
-     * @param klWarmupEpochs Number of epochs over which to ramp up the KL
-     * weight
-     * @param maxKLWeight The maximum KL weight (recommended: 0.5–1.0)
-     * @param sharpness Controls how steep the sigmoid ramp is (recommended:
-     * 6–10)
-     * @return The KL weight (between 0.0 and maxKLWeight)
-     */
-    public static double getKLWeight(int epoch, int klWarmupEpochs, double maxKLWeight, double sharpness) {
-        // Ensure progress is in [0.0, 1.0]
-        double progress = Math.min(1.0, Math.max(0.0, (double) epoch / klWarmupEpochs));
-
-        // Center the sigmoid at halfway point of ramp-up
-        double x = sharpness * (progress - 0.5);
-
-        // Standard sigmoid function
-        double sigmoid = 1.0 / (1.0 + Math.exp(-x));
-
-        // Scale sigmoid output to the desired max KL weight
-        return maxKLWeight * sigmoid;
-    }
-
-    /**
-     * Utility function to detect NaNs or Infs in a vector.
-     */
-    private static boolean hasNaNsOrInfs(double[] vec) {
-        for (double v : vec) {
-            if (Double.isNaN(v) || Double.isInfinite(v)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-// Gradient descent update: W += -lr * outer(input, grad)
-    private void updateMatrix(double[][] W, double[] input, double[] grad, double lr) {
-        if (W.length != input.length) {
-            throw new IllegalArgumentException("W.rows = " + W.length + " but input.length = " + input.length);
-        }
-        if (W[0].length != grad.length) {
-            throw new IllegalArgumentException("W.cols = " + W[0].length + " but grad.length = " + grad.length);
-        }
-
-        for (int i = 0; i < W.length; i++) {
-            for (int j = 0; j < W[i].length; j++) {
-                W[i][j] -= lr * input[i] * grad[j];
-            }
-        }
-    }
-
-// Gradient descent update: b += -lr * grad
-    private void updateVector(double[] b, double[] grad, double lr) {
-        for (int i = 0; i < b.length; i++) {
-            b[i] -= lr * grad[i];
-        }
-    }
-
-    /**
      * Perform gradient descent updates for all weights and biases in the
      * 3-layer encoder and 2-layer decoder CVAE.
      */
     private void updateParametersDeep(
-            double[] xc, double[] h1, double[] h2, double[] h3,
-            double[] dh1, double[] dh2, double[] dh3,
-            double[] mu, double[] dmu, double[] dlogvar,
+            double[] xc, double[] h1, double[] h2, 
+            double[] dh1, double[] dh2, 
+            double[] dmu, double[] dlogvar,
             double[] z, double[] c,
-            double[] d1, double[] d2, double[] dxRecon
+            double[] d1, double[] d2, 
+            double[] dL_dDec1, double[] dL_dDec2, double[] dL_dxRecon
     ) {
         // ----- Encoder -----
         updateMatrix(W_enc1, xc, dh1, learningRate);
@@ -403,31 +337,31 @@ public class CVAE {
         updateMatrix(W_enc2, h1, dh2, learningRate);
         updateVector(b_enc2, dh2, learningRate);
 
-        updateMatrix(W_enc3, h2, dh3, learningRate);
-        updateVector(b_enc3, dh3, learningRate);
+//        updateMatrix(W_enc3, h2, dh3, learningRate);
+//        updateVector(b_enc3, dh3, learningRate);
 
-        updateMatrix(W_mu, h3, dmu, learningRate);
+//        updateMatrix(W_mu, h3, dmu, learningRate);
+        updateMatrix(W_mu, h2, dmu, learningRate);
         updateVector(b_mu, dmu, learningRate);
 
-        updateMatrix(W_logvar, h3, dlogvar, learningRate);
+//        updateMatrix(W_logvar, h3, dlogvar, learningRate);
+        updateMatrix(W_logvar, h2, dlogvar, learningRate);
         updateVector(b_logvar, dlogvar, learningRate);
 
         // ----- Decoder -----
         double[] zc = concat(z, c);
 
         // Decoder Layer 1
-        double[] dL_dd1 = dotT(d2, W_dec2);
-        updateMatrix(W_dec1, zc, dL_dd1, learningRate);
-        updateVector(b_dec1, dL_dd1, learningRate);
+        updateMatrix(W_dec1, zc, dL_dDec1, learningRate);
+        updateVector(b_dec1, dL_dDec1, learningRate);
 
         // Decoder Layer 2
-        double[] dL_dd2 = dotT(dxRecon, W_decOut);
-        updateMatrix(W_dec2, d1, dL_dd2, learningRate);
-        updateVector(b_dec2, dL_dd2, learningRate);
+        updateMatrix(W_dec2, d1, dL_dDec2, learningRate);
+        updateVector(b_dec2, dL_dDec2, learningRate);
 
-        // Output layer
-        updateMatrix(W_decOut, d2, dxRecon, learningRate);
-        updateVector(b_decOut, dxRecon, learningRate);
+        // Output Layer
+        updateMatrix(W_decOut, d2, dL_dxRecon, learningRate);
+        updateVector(b_decOut, dL_dxRecon, learningRate);
     }
 
     /**
@@ -460,189 +394,32 @@ public class CVAE {
         double[] z = new double[latentDim]; // all zeros
         return decode(z, condition);
     }
-    // --- Utility methods for matrix/vector operations and initialization ---
 
     /**
-     * Initialize vector with zeros
-     */
-    private static double[] initVector(int len) {
-        return new double[len]; // Java initializes to 0.0
-    }
-
-    /**
-     * Xavier Glorot initializer with clamping
-     */
-private double[][] initMatrix(int in, int out) {
-    double limit = Math.sqrt(6.0 / (in + out));
-    double[][] mat = new double[in][out];
-    for (int i = 0; i < in; i++) {
-        for (int j = 0; j < out; j++) {
-            mat[i][j] = rand.nextDouble() * 2 * limit - limit;
-        }
-    }
-    return mat;
-}
-
-private double[] relu(double[] x) {
-    double[] out = new double[x.length];
-    for (int i = 0; i < x.length; i++) {
-        if (Double.isNaN(x[i]) || Double.isInfinite(x[i])) {
-            throw new RuntimeException("ReLU input contains NaN/Inf at index " + i + ": " + x[i]);
-        }        
-        out[i] = Math.max(0.0, Math.min(50.0, x[i]));  // Clamp to [0, 50]
-    }
-    return out;
-}
-    /**
-     * Element-wise vector addition
-     */
-    private static double[] add(double[] a, double[] b) {
-        if (a.length != b.length) {
-            throw new IllegalArgumentException("add(): Dimension mismatch " + a.length + " vs " + b.length);
-        }
-        double[] out = new double[a.length];
-        for (int i = 0; i < a.length; i++) {
-            out[i] = a[i] + b[i];
-            if (Double.isNaN(out[i]) || Double.isInfinite(out[i])) {
-                throw new RuntimeException("add(): NaN or Inf at index " + i);
-            }
-        }
-        return out;
-    }
-
-    /**
-     * Compute matrix product x * W
+     * Set the current training epoch, used for KL annealing. Should be called
+     * once per epoch from the training loop.
      *
-     * @param x Vector of length n
-     * @param W Matrix n x m
-     * @return Result vector length m
+     * @param epoch Current epoch number (0-based)
      */
-    private static double[] dot(double[] x, double[][] W) {
-        if (x.length != W.length) {
-            throw new IllegalArgumentException("dot(): Dimension mismatch: x.length=" + x.length + ", W.length=" + W.length);
-        }
-        int outDim = W[0].length;
-        double[] out = new double[outDim];
-        for (int j = 0; j < outDim; j++) {
-            for (int i = 0; i < x.length; i++) {
-                out[j] += x[i] * W[i][j];
-            }
-            if (Double.isNaN(out[j]) || Double.isInfinite(out[j])) {
-                System.err.println("Bad dot(): x=" + Arrays.toString(x));
-                System.err.println("W[0]=" + Arrays.toString(W[0]));
-                throw new RuntimeException("dot(): NaN or Inf in output at index " + j);
-            }
-        }
-        return out;
+    public void setCurrentEpoch(int epoch) {
+        this.currentEpoch = epoch;
     }
 
     /**
-     * Compute dot product of gradient vector dy with transpose of weight matrix
-     * W. Used for backpropagation.
+     * Sets the number of epochs used to warm up the KL divergence term.
      *
-     * @param dy Gradient vector of length m
-     * @param W Weight matrix n x m
-     * @return Gradient vector length n
+     * @param epochs Number of warm-up epochs
      */
-    private static double[] dotT(double[] dy, double[][] W) {
-        if (dy.length != W[0].length) {
-            throw new IllegalArgumentException("dotT(): Dimension mismatch: dy.length=" + dy.length + ", W[0].length=" + W[0].length);
-        }
-        int inDim = W.length;
-        double[] out = new double[inDim];
-        for (int i = 0; i < inDim; i++) {
-            for (int j = 0; j < dy.length; j++) {
-                out[i] += dy[j] * W[i][j];
-            }
-            if (Double.isNaN(out[i]) || Double.isInfinite(out[i])) {
-                throw new RuntimeException("dotT(): NaN or Inf in output at index " + i);
-            }
-        }
-        return out;
+    public void setKlWarmupEpochs(int epochs) {
+        this.klWarmupEpochs = epochs;
     }
 
     /**
-     * Concatenate two vectors
+     * Resets the internal training epoch counter (optional if needed).
      */
-    private static double[] concat(double[] a, double[] b) {
-        double[] r = new double[a.length + b.length];
-        System.arraycopy(a, 0, r, 0, a.length);
-        System.arraycopy(b, 0, r, a.length, b.length);
-        return r;
+    public void resetEpochCounter() {
+        this.currentEpoch = 0;
     }
-
-    /**
-     * Slice subvector from array starting at 'start' of length 'len'
-     */
-    private static double[] slice(double[] arr, int start, int len) {
-        if (start < 0 || start + len > arr.length) {
-            throw new IllegalArgumentException("slice(): Invalid range: start=" + start + ", len=" + len + ", arr.length=" + arr.length);
-        }
-        double[] r = new double[len];
-        System.arraycopy(arr, start, r, 0, len);
-        return r;
-    }
-
-    /**
-     * Clip gradient vector to have at most L2 norm = clipVal
-     */
-    private static void clipGradient(double[] grad, double clipVal) {
-        if (clipVal <= 0.0) return;
-
-        double norm = 0.0;
-        for (double g : grad) {
-            if (Double.isNaN(g) || Double.isInfinite(g)) {
-                throw new RuntimeException("clipGradient(): NaN/Inf in gradient: " + g);
-            }
-            norm += g * g;
-        }
-
-        norm = Math.sqrt(norm);
-        if (norm > clipVal) {
-            double scale = clipVal / norm;
-            for (int i = 0; i < grad.length; i++) {
-                grad[i] *= scale;
-            }
-        }
-    }
-
-    /**
-     * Compute mean squared error loss between vectors a and b
-     */
-    private static double mseLoss(double[] target, double[] predicted) {
-        if (target.length != predicted.length) {
-            throw new IllegalArgumentException("mseLoss(): Dimension mismatch: target.length=" + target.length + ", predicted.length=" + predicted.length);
-        }
-
-        double sum = 0.0;
-        for (int i = 0; i < target.length; i++) {
-            double diff = predicted[i] - target[i];
-            if (Double.isNaN(diff) || Double.isInfinite(diff)) {
-                throw new RuntimeException("mseLoss(): NaN/Inf at index " + i + ": predicted=" + predicted[i] + ", target=" + target[i]);
-            }
-            sum += diff * diff;
-        }
-        return sum / target.length;
-    }
-
-    /**
-     * Compute gradient of MSE loss w.r.t predicted output
-     */
-    private static double[] mseGradient(double[] predicted, double[] target) {
-        if (predicted.length != target.length) {
-            throw new IllegalArgumentException("mseGradient(): Dimension mismatch: predicted.length=" + predicted.length + ", target.length=" + target.length);
-        }
-
-        double[] grad = new double[predicted.length];
-        for (int i = 0; i < predicted.length; i++) {
-            grad[i] = 2.0 * (predicted[i] - target[i]) / predicted.length;
-            if (Double.isNaN(grad[i]) || Double.isInfinite(grad[i])) {
-                throw new RuntimeException("mseGradient(): NaN/Inf at index " + i + ": grad=" + grad[i]);
-            }
-        }
-        return grad;
-    }
-
     /**
      * @return the maxKLWeight
      */
