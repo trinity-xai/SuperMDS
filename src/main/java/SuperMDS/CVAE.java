@@ -59,12 +59,11 @@ public class CVAE {
     private double[] b_dec1, b_dec2, b_decOut; // Biases for decoder layers
     // === Annealing settings ===
     private int currentEpoch = 0;
-    private int klWarmupEpochs = 1000;
-    private double maxKLWeight = 0.75;
-    private double klSharpness = 8.0;
+    private int klWarmupEpochs = 100;
+    private double maxKLWeight = 0.5;
+    private double klSharpness = 10.0;
     private double learningRate = 0.0001;
     
-
     /**
      * Initialize a new CVAE instance with 3 hidden layers in encoder and
      * decoder.
@@ -92,8 +91,6 @@ public class CVAE {
         W_enc2 = initMatrix(hiddenDim, hiddenDim, true); //Relu us HE init
         b_enc2 = initVector(hiddenDim);
 
-//        W_enc3 = initMatrix(hiddenDim, hiddenDim, true); //Relu us HE init
-//        b_enc3 = initVector(hiddenDim);
         // Output layers of encoder: linear → Xavier
         W_mu = initMatrix(hiddenDim, latentDim, false);
         b_mu = initVector(latentDim);
@@ -132,11 +129,6 @@ public class CVAE {
         double[] h2 = relu(add(dot(h1, W_enc2), b_enc2)); // [hiddenDim]
 
         return h2;
-        
-//        // Step 4: Hidden layer 3
-//        double[] h3 = relu(add(dot(h2, W_enc3), b_enc3)); // [hiddenDim]
-//
-//        return h3;
     }
 
     /**
@@ -200,123 +192,126 @@ public class CVAE {
     }
 
     /**
-     * Perform one training step on a single (input, condition) pair. Includes
-     * full forward + backward pass, with gradient clipping and numerical
-     * stability controls.
-     *
-     * @param x Input vector
-     * @param c Condition vector
-     * @return Total loss (reconstruction + weighted KL divergence)
-     */
-    public double train(double[] x, double[] c) {
-        if (hasNaNsOrInfs(x) || hasNaNsOrInfs(c)) {
-            throw new IllegalArgumentException("Input or condition vector contains NaNs or Infs.");
-        }
+    * Perform one training step on a single (input, condition) pair. Includes
+    * full forward + backward pass, with gradient clipping and numerical
+    * stability controls.
+    *
+    * @param x Input vector
+    * @param c Condition vector
+    * @return Total loss (reconstruction + weighted KL divergence)
+    */
+   public double train(double[] x, double[] c) {
+       if (hasNaNsOrInfs(x) || hasNaNsOrInfs(c)) {
+           throw new IllegalArgumentException("Input or condition vector contains NaNs or Infs.");
+       }
 
-        double[] xc = concat(x, c);
+       double[] xc = concat(x, c);
 
-        // ===== Forward Pass =====
-        // Encoder
-        double[] h1 = relu(add(dot(xc, W_enc1), b_enc1));
-        double[] h2 = relu(add(dot(h1, W_enc2), b_enc2));
-//        double[] h3 = relu(add(dot(h2, W_enc3), b_enc3));
-//
-//        double[] mu = add(dot(h3, W_mu), b_mu);
-//        double[] logvar = add(dot(h3, W_logvar), b_logvar);
+       // ===== Forward Pass =====
+       // Encoder
+       double[] h1 = relu(add(dot(xc, W_enc1), b_enc1));
+       double[] h2 = relu(add(dot(h1, W_enc2), b_enc2));
 
-        double[] mu = add(dot(h2, W_mu), b_mu);
-        double[] logvar = add(dot(h2, W_logvar), b_logvar);
-        
-        double[] safeLogvar = new double[latentDim];
-        for (int i = 0; i < latentDim; i++) {
-            safeLogvar[i] = Math.max(Math.min(logvar[i], 10.0), -10.0);
-        }
+       double[] mu = add(dot(h2, W_mu), b_mu);
+       double[] logvar = add(dot(h2, W_logvar), b_logvar);
 
-        double[] z = sampleLatent(mu, safeLogvar);
-        double[] zc = concat(z, c);
+       double[] safeLogvar = new double[latentDim];
+       for (int i = 0; i < latentDim; i++) {
+           safeLogvar[i] = Math.max(Math.min(logvar[i], 10.0), -10.0);
+       }
 
-        // Decoder
-        double[] d1 = relu(add(dot(zc, W_dec1), b_dec1));
-        double[] d2 = relu(add(dot(d1, W_dec2), b_dec2));
-        double[] xRecon = add(dot(d2, W_decOut), b_decOut);  // Linear output layer
+       double[] z = sampleLatent(mu, safeLogvar);
+       for (int i = 0; i < z.length; i++) {
+           if (Math.abs(z[i]) > 10.0) z[i] = Math.signum(z[i]) * 10.0;
+       }
 
-        for (int i = 0; i < xRecon.length; i++) {
-            xRecon[i] = Math.max(Math.min(xRecon[i], 1e6), -1e6);  // Clamp output
-        }
+       double[] zc = concat(z, c);
 
-        // ===== Loss =====
-        double reconLoss = mseLoss(x, xRecon);
-        double klLoss = 0.0;
-        for (int i = 0; i < latentDim; i++) {
-            double var = Math.exp(safeLogvar[i]);
-            klLoss += -0.5 * (1 + safeLogvar[i] - mu[i] * mu[i] - var);
-        }
+       // Decoder
+       double[] d1 = relu(add(dot(zc, W_dec1), b_dec1));
+       double[] d2 = relu(add(dot(d1, W_dec2), b_dec2));
+       double[] xRecon = add(dot(d2, W_decOut), b_decOut);  // Linear output
 
-        double klWeight = getKLWeight(currentEpoch, klWarmupEpochs, maxKLWeight, klSharpness);
-        double loss = reconLoss + klWeight * klLoss;
+       for (int i = 0; i < xRecon.length; i++) {
+           xRecon[i] = Math.max(Math.min(xRecon[i], 1e6), -1e6);
+       }
 
-        if (Double.isNaN(loss) || Double.isInfinite(loss)) {
-            System.out.println("x = " + Arrays.toString(x));
-            System.out.println("c = " + Arrays.toString(c));
-            System.out.println("xRecon = " + Arrays.toString(xRecon));
-            System.out.println("mu = " + Arrays.toString(mu));
-            System.out.println("logvar = " + Arrays.toString(logvar));
-            System.out.println("safeLogvar = " + Arrays.toString(safeLogvar));
-            System.out.println("z = " + Arrays.toString(z));
-            throw new RuntimeException("Training loss became NaN or Infinite — check input data or model stability.");
-        }
+       // ===== Loss =====
+       double reconLoss = mseLoss(x, xRecon);
+       double klLoss = 0.0;
+       for (int i = 0; i < latentDim; i++) {
+           double var = Math.exp(safeLogvar[i]);
+           klLoss += -0.5 * (1 + safeLogvar[i] - mu[i] * mu[i] - var);
+       }
 
-        // ===== Backward Pass =====
-        double[] dL_dxRecon = mseGradient(xRecon, x);
+       double klWeight = getKLWeight(currentEpoch, klWarmupEpochs, maxKLWeight, klSharpness);
+       double loss = reconLoss + klWeight * klLoss;
 
-        // Decoder
-        double[] dL_dDecOut = dotT(dL_dxRecon, W_decOut);
-        double[] dL_dDec2 = reluGrad(d2, dL_dDecOut);
-        double[] dL_dDec1 = reluGrad(d1, dotT(dL_dDec2, W_dec2));
-        double[] dL_dZC = dotT(dL_dDec1, W_dec1);
+       if (Double.isNaN(loss) || Double.isInfinite(loss)) {
+           System.out.println("x = " + Arrays.toString(x));
+           System.out.println("c = " + Arrays.toString(c));
+           System.out.println("xRecon = " + Arrays.toString(xRecon));
+           System.out.println("mu = " + Arrays.toString(mu));
+           System.out.println("logvar = " + Arrays.toString(logvar));
+           System.out.println("safeLogvar = " + Arrays.toString(safeLogvar));
+           System.out.println("z = " + Arrays.toString(z));
+           throw new RuntimeException("Training loss became NaN or Infinite — check input data or model stability.");
+       }
 
-        double[] dz = slice(dL_dZC, 0, latentDim);
+       // Optional debug output
+       if (currentEpoch % 10000 == 0) {
+           System.out.printf("Epoch %d — Recon: %.6f, KL: %.6f (weight %.3f), Total: %.6f\n",
+                   currentEpoch, reconLoss, klLoss, klWeight, loss);
+       }
 
-        // VAE reparam gradients
-        double[] dL_dmu = new double[latentDim];
-        double[] dL_dlogvar = new double[latentDim];
-        for (int i = 0; i < latentDim; i++) {
-            double sigma = Math.exp(0.5 * safeLogvar[i]);
-            double eps = (z[i] - mu[i]) / sigma;
-            dL_dmu[i] = dz[i] - klWeight * mu[i];
-            dL_dlogvar[i] = klWeight * (0.5 * dz[i] * eps - 0.5 * (1 - Math.exp(safeLogvar[i])));
-        }
+       // ===== Backward Pass =====
+       double[] dL_dxRecon = mseGradient(xRecon, x);
 
-        // Encoder gradients
-        double[] dmu_dh2 = dotT(dL_dmu, W_mu);
-        double[] dlogvar_dh2 = dotT(dL_dlogvar, W_logvar);
-//        double[] dL_dh3 = reluGrad(h3, add(dmu_dh3, dlogvar_dh3));
-//        double[] dL_dh2 = reluGrad(h2, dotT(dL_dh3, W_enc3));
+       // Decoder
+       double[] dL_dDecOut = dotT(dL_dxRecon, W_decOut);
+       double[] dL_dDec2 = reluGrad(d2, dL_dDecOut);
+       double[] dL_dDec1 = reluGrad(d1, dotT(dL_dDec2, W_dec2));
+       double[] dL_dZC = dotT(dL_dDec1, W_dec1);
 
-        double[] dL_dh2 = reluGrad(h2, add(dmu_dh2, dlogvar_dh2));
+       double[] dz = slice(dL_dZC, 0, latentDim);
 
-        double[] dL_dh1 = reluGrad(h1, dotT(dL_dh2, W_enc2));
+       // ===== KL Divergence Backpropagation (Fixed) =====
+       double[] dL_dmu = new double[latentDim];
+       double[] dL_dlogvar = new double[latentDim];
+       for (int i = 0; i < latentDim; i++) {
+           double sigma = Math.exp(0.5 * safeLogvar[i]);
+           double eps = (z[i] - mu[i]) / sigma;
 
-        // ===== Gradient Clipping =====
-        clipGradient(dL_dxRecon, 5.0);
-        clipGradient(dL_dmu, 5.0);
-        clipGradient(dL_dlogvar, 5.0);
-//        clipGradient(dL_dh3, 5.0);
-        clipGradient(dL_dh2, 5.0);
-        clipGradient(dL_dh1, 5.0);
+           // Backprop from decoder + KL term
+           dL_dmu[i] = dz[i] + klWeight * mu[i];  // ∂KL/∂μ = μ
+           dL_dlogvar[i] = 0.5 * dz[i] * eps + klWeight * 0.5 * (Math.exp(safeLogvar[i]) - 1);
+       }
 
-        // ===== Parameter Updates =====
-        updateParametersDeep(
-                xc, h1, h2, 
-                dL_dh1, dL_dh2, 
-                dL_dmu, dL_dlogvar,
-                z, c, d1, d2, 
-                dL_dDec1, dL_dDec2, dL_dxRecon 
-        );
+       // Encoder
+       double[] dmu_dh2 = dotT(dL_dmu, W_mu);
+       double[] dlogvar_dh2 = dotT(dL_dlogvar, W_logvar);
+       double[] dL_dh2 = reluGrad(h2, add(dmu_dh2, dlogvar_dh2));
+       double[] dL_dh1 = reluGrad(h1, dotT(dL_dh2, W_enc2));
 
-        currentEpoch++;
-        return loss;
-    }
+       // ===== Gradient Clipping =====
+       clipGradient(dL_dxRecon, 5.0);
+       clipGradient(dL_dmu, 5.0);
+       clipGradient(dL_dlogvar, 5.0);
+       clipGradient(dL_dh2, 5.0);
+       clipGradient(dL_dh1, 5.0);
+
+       // ===== Parameter Updates =====
+       updateParametersDeep(
+               xc, h1, h2,
+               dL_dh1, dL_dh2,
+               dL_dmu, dL_dlogvar,
+               z, c, d1, d2,
+               dL_dDec1, dL_dDec2, dL_dxRecon
+       );
+
+       currentEpoch++;
+       return loss;
+   }
 
     /**
      * Perform gradient descent updates for all weights and biases in the
@@ -337,14 +332,9 @@ public class CVAE {
         updateMatrix(W_enc2, h1, dh2, learningRate);
         updateVector(b_enc2, dh2, learningRate);
 
-//        updateMatrix(W_enc3, h2, dh3, learningRate);
-//        updateVector(b_enc3, dh3, learningRate);
-
-//        updateMatrix(W_mu, h3, dmu, learningRate);
         updateMatrix(W_mu, h2, dmu, learningRate);
         updateVector(b_mu, dmu, learningRate);
 
-//        updateMatrix(W_logvar, h3, dlogvar, learningRate);
         updateMatrix(W_logvar, h2, dlogvar, learningRate);
         updateVector(b_logvar, dlogvar, learningRate);
 

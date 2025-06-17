@@ -40,6 +40,7 @@ public class CVAEHelper {
         // Scale sigmoid output to the desired max KL weight
         return maxKLWeight * sigmoid;
     }
+
     /**
      * Initialize vector with zeros
      */
@@ -259,7 +260,16 @@ public static double[] relu(double[] x) {
         }
         return sum / target.length;
     }
-
+    
+//    /** Utility: Mean squared error between two vectors */
+//    private static double mseLoss(double[] a, double[] b) {
+//        double sum = 0;
+//        for (int i = 0; i < a.length; i++) {
+//            double d = a[i] - b[i];
+//            sum += d * d;
+//        }
+//        return sum / a.length;
+//    }    
     /**
      * Compute gradient of MSE loss w.r.t predicted output
      */
@@ -277,4 +287,17 @@ public static double[] relu(double[] x) {
         }
         return grad;
     }    
+    /** Utility: Generate random Gaussian data */
+    public static double[][] generateRandomData(int rows, int cols) {
+        double[][] data = new double[rows][cols];
+        java.util.Random rand = new java.util.Random();
+        for (int i = 0; i < rows; i++) {
+            for (int j = 0; j < cols; j++) {
+                data[i][j] = rand.nextGaussian(); // standard normal distribution
+            }
+        }
+        return data;
+    }
+
+
 }
