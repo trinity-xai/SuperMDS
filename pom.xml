@@ -22,7 +22,7 @@
         <apache.commons.lang3.version>3.17.0</apache.commons.lang3.version>
 		
         <maven.min.version>3.6.3</maven.min.version>
-        <maven.compiler.release>22</maven.compiler.release>
+        <maven.compiler.release>23</maven.compiler.release>
         <maven.build.timestamp.format>yyyy.MM.dd</maven.build.timestamp.format>
         <maven.compiler.plugin.version>3.11.0</maven.compiler.plugin.version>
         <maven.enforcer.plugin.version>3.3.0</maven.enforcer.plugin.version>

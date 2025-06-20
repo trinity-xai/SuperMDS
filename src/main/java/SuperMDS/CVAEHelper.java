@@ -5,10 +5,13 @@ import java.util.Random;
 
 /**
  * Captures various vector and matrix math operations that are static.
+ *
  * @author Sean Phillips
  */
 public class CVAEHelper {
+
     private static Random rand = new Random();
+
     /**
      * Compute the current KL annealing weight using a sigmoid ramp-up schedule.
      * This method gradually increases the weight of the KL divergence term
@@ -42,6 +45,37 @@ public class CVAEHelper {
     }
 
     /**
+     * Computes a cyclical KL divergence weight using a sigmoid ramp within each
+     * cycle. This method allows the KL weight to rise smoothly from 0 to
+     * maxKLWeight during each cycle, encouraging the model to periodically use
+     * the latent space more fully (helps avoid posterior collapse).
+     *
+     * @param epoch The current training epoch (non-negative integer).
+     * @param cycleLength The number of epochs in one annealing cycle (e.g.,
+     * 200).
+     * @param maxKLWeight The maximum KL weight to reach at the peak of each
+     * cycle (e.g., 1.0).
+     * @param sharpness Controls the steepness of the sigmoid curve (typical
+     * range: 5 to 20).
+     * @return The KL weight for the current epoch, smoothly ranging from 0 to
+     * maxKLWeight.
+     */
+    public static double getCyclicalKLWeightSigmoid(int epoch, int cycleLength, double maxKLWeight, double sharpness) {
+        // Compute how far we are through the current cycle: a value in [0.0, 1.0]
+        double cycleProgress = (epoch % cycleLength) / (double) cycleLength;
+
+        // Center the sigmoid curve at the midpoint of the cycle (i.e., 0.5)
+        // Sharpness controls how quickly the weight increases near the midpoint
+        double x = sharpness * (cycleProgress - 0.5);
+
+        // Standard sigmoid function maps x into [0.0, 1.0]
+        double sigmoid = 1.0 / (1.0 + Math.exp(-x));
+
+        // Scale by the max desired KL weight
+        return maxKLWeight * sigmoid;
+    }
+
+    /**
      * Initialize vector with zeros
      */
     public static double[] initVector(int len) {
@@ -49,14 +83,15 @@ public class CVAEHelper {
     }
 
     /**
-     * Initializes a weight matrix for a neural network layer using either 
-     * Xavier Glorot initialization (for tanh/linear activations) or 
-     * He initialization (for ReLU/LeakyReLU activations).
-     * 
-     * @param in       The number of input neurons (fan-in).
-     * @param out      The number of output neurons (fan-out).
-     * @param forReLU  If true, uses He initialization (recommended for ReLU activations).
-     *                 If false, uses Xavier Glorot initialization (recommended for tanh or linear activations).
+     * Initializes a weight matrix for a neural network layer using either
+     * Xavier Glorot initialization (for tanh/linear activations) or He
+     * initialization (for ReLU/LeakyReLU activations).
+     *
+     * @param in The number of input neurons (fan-in).
+     * @param out The number of output neurons (fan-out).
+     * @param forReLU If true, uses He initialization (recommended for ReLU
+     * activations). If false, uses Xavier Glorot initialization (recommended
+     * for tanh or linear activations).
      * @return A 2D array representing the initialized weight matrix.
      */
     public static double[][] initMatrix(int in, int out, boolean forReLU) {
@@ -84,9 +119,8 @@ public class CVAEHelper {
 
         return mat;
     }
-  
-    
-// Gradient descent update: W += -lr * outer(input, grad)
+
+    // Gradient descent update: W += -lr * outer(input, grad)
     public static void updateMatrix(double[][] W, double[] input, double[] grad, double lr) {
         if (W.length != input.length) {
             throw new IllegalArgumentException("W.rows = " + W.length + " but input.length = " + input.length);
@@ -102,12 +136,36 @@ public class CVAEHelper {
         }
     }
 
-// Gradient descent update: b += -lr * grad
+    // Gradient descent update: b += -lr * grad
     public static void updateVector(double[] b, double[] grad, double lr) {
         for (int i = 0; i < b.length; i++) {
             b[i] -= lr * grad[i];
         }
     }
+    
+    public static double[] applyDropout(double[] input, double dropoutRate, Random rng) {
+        double[] output = new double[input.length];
+        for (int i = 0; i < input.length; i++) {
+            //output[i] = (rng.nextDouble() < dropoutRate) ? 0.0 : input[i];
+            output[i] = (rng.nextDouble() < dropoutRate) ? 0.0 : input[i] / (1.0 - dropoutRate);
+        }
+        return output;
+    }    
+
+    public static int[] shuffledIndices(int n) {
+        int[] indices = new int[n];
+        for (int i = 0; i < n; i++) {
+            indices[i] = i;
+        }
+        for (int i = n - 1; i > 0; i--) {
+            int j = rand.nextInt(i + 1);
+            int temp = indices[i];
+            indices[i] = indices[j];
+            indices[j] = temp;
+        }
+        return indices;
+    }
+
     /**
      * Utility function to detect NaNs or Infs in a vector.
      */
@@ -118,17 +176,53 @@ public class CVAEHelper {
             }
         }
         return false;
-    }    
-public static double[] relu(double[] x) {
-    double[] out = new double[x.length];
-    for (int i = 0; i < x.length; i++) {
-        if (Double.isNaN(x[i]) || Double.isInfinite(x[i])) {
-            throw new RuntimeException("ReLU input contains NaN/Inf at index " + i + ": " + x[i]);
-        }        
-        out[i] = Math.max(0.0, Math.min(50.0, x[i]));  // Clamp to [0, 50]
     }
-    return out;
-}
+
+    public static double[] relu(double[] x) {
+        double[] out = new double[x.length];
+        for (int i = 0; i < x.length; i++) {
+            if (Double.isNaN(x[i]) || Double.isInfinite(x[i])) {
+                throw new RuntimeException("ReLU input contains NaN/Inf at index " + i + ": " + x[i]);
+            }
+            out[i] = Math.max(0.0, Math.min(50.0, x[i]));  // Clamp to [0, 50]
+        }
+        return out;
+    }
+    /**
+     * Sample latent vector z from mu and log variance using reparameterization
+     * trick.
+     *
+     * @param mu Mean vector of latent distribution
+     * @param logvar Log variance vector of latent distribution
+     * @return Sampled latent vector z
+     */
+    public static double[] sampleLatent(double[] mu, double[] logvar) {
+        double[] z = new double[mu.length];
+        for (int i = 0; i < z.length; i++) {
+            double eps = rand.nextGaussian(); // Standard normal noise
+            z[i] = mu[i] + Math.exp(0.5 * logvar[i]) * eps;
+        }
+        return z;
+    }
+
+    /**
+     * Compute the gradient of the ReLU activation function using the output as
+     * a mask. This is the elementwise product of the upstream gradient and the
+     * ReLU derivative.
+     *
+     * @param output The output of the ReLU function (i.e.,
+     * ReLU(pre-activation))
+     * @param upstream The gradient flowing from the next layer
+     * @return Gradient to backpropagate to the previous layer
+     */
+    public static double[] reluGrad(double[] output, double[] upstream) {
+        double[] grad = new double[output.length];
+        for (int i = 0; i < output.length; i++) {
+            grad[i] = output[i] > 0.0 ? upstream[i] : 0.0;
+        }
+        return grad;
+    }    
+
     /**
      * Element-wise vector addition
      */
@@ -223,7 +317,9 @@ public static double[] relu(double[] x) {
      * Clip gradient vector to have at most L2 norm = clipVal
      */
     public static void clipGradient(double[] grad, double clipVal) {
-        if (clipVal <= 0.0) return;
+        if (clipVal <= 0.0) {
+            return;
+        }
 
         double norm = 0.0;
         for (double g : grad) {
@@ -260,16 +356,7 @@ public static double[] relu(double[] x) {
         }
         return sum / target.length;
     }
-    
-//    /** Utility: Mean squared error between two vectors */
-//    private static double mseLoss(double[] a, double[] b) {
-//        double sum = 0;
-//        for (int i = 0; i < a.length; i++) {
-//            double d = a[i] - b[i];
-//            sum += d * d;
-//        }
-//        return sum / a.length;
-//    }    
+
     /**
      * Compute gradient of MSE loss w.r.t predicted output
      */
@@ -286,8 +373,11 @@ public static double[] relu(double[] x) {
             }
         }
         return grad;
-    }    
-    /** Utility: Generate random Gaussian data */
+    }
+
+    /**
+     * Utility: Generate random Gaussian data
+     */
     public static double[][] generateRandomData(int rows, int cols) {
         double[][] data = new double[rows][cols];
         java.util.Random rand = new java.util.Random();
@@ -298,6 +388,4 @@ public static double[] relu(double[] x) {
         }
         return data;
     }
-
-
 }
