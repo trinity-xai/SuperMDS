@@ -86,7 +86,8 @@ public class CVAE {
     private boolean isTraining = false;
     
     private final ThreadLocal<BufferSet> threadBuffers;
-    
+    private final ThreadLocal<SIMDRandomBuffer> threadRngBuffer;
+
     private int debugEpochCount = 10000;
     private boolean debug = false;
 
@@ -108,6 +109,7 @@ public class CVAE {
         rand = new Random();
         threadBuffers = ThreadLocal.withInitial(() -> 
             new BufferSet(inputDim, conditionDim, latentDim, hiddenDim));
+        threadRngBuffer = ThreadLocal.withInitial(() -> new SIMDRandomBuffer(4096));        
         
         int encInputDim = inputDim + conditionDim;    // Encoder input: [x | c]
         int decInputDim = latentDim + conditionDim;   // Decoder input: [z | c]
