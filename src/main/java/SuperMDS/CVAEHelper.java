@@ -178,16 +178,6 @@ public class CVAEHelper {
         return false;
     }
 
-    public static double[] relu(double[] x) {
-        double[] out = new double[x.length];
-        for (int i = 0; i < x.length; i++) {
-            if (Double.isNaN(x[i]) || Double.isInfinite(x[i])) {
-                throw new RuntimeException("ReLU input contains NaN/Inf at index " + i + ": " + x[i]);
-            }
-            out[i] = Math.max(0.0, Math.min(50.0, x[i]));  // Clamp to [0, 50]
-        }
-        return out;
-    }
     /**
      * Sample latent vector z from mu and log variance using reparameterization
      * trick.
@@ -204,6 +194,91 @@ public class CVAEHelper {
         }
         return z;
     }
+// In place operations variants    
+public static void reluInPlace(double[] x) {
+    for (int i = 0; i < x.length; i++) {
+        x[i] = Math.max(0.0, Math.min(50.0, x[i]));
+    }
+}    
+public static void addInPlace(double[] a, double[] b) {
+    for (int i = 0; i < a.length; i++) {
+        a[i] += b[i];
+    }
+}
+public static void addInPlace(double[] a, double[] b, double[] out) {
+    if (a.length != b.length || a.length != out.length) {
+        throw new IllegalArgumentException("Dimension mismatch in addInPlace");
+    }
+
+    for (int i = 0; i < a.length; i++) {
+        out[i] = a[i] + b[i];
+        if (Double.isNaN(out[i]) || Double.isInfinite(out[i])) {
+            throw new RuntimeException("addInPlace: NaN or Inf at index " + i);
+        }
+    }
+}
+public static void dotInPlace(double[] x, double[][] W, double[] out) {
+    Arrays.fill(out, 0.0);
+    for (int j = 0; j < W[0].length; j++) {
+        for (int i = 0; i < x.length; i++) {
+            out[j] += x[i] * W[i][j];
+        }
+    }
+}    
+public static void dotTInPlace(double[] dy, double[][] W, double[] out) {
+    Arrays.fill(out, 0.0);
+    for (int i = 0; i < W.length; i++) {
+        for (int j = 0; j < dy.length; j++) {
+            out[i] += dy[j] * W[i][j];
+        }
+    }
+}    
+public static void reluGradInPlace(double[] output, double[] upstream, double[] out) {
+    for (int i = 0; i < output.length; i++) {
+        out[i] = output[i] > 0.0 ? upstream[i] : 0.0;
+    }
+}
+public static void mseGradientInPlace(double[] predicted, double[] target, double[] gradOut) {
+    double scale = 2.0 / predicted.length;
+    for (int i = 0; i < predicted.length; i++) {
+        gradOut[i] = scale * (predicted[i] - target[i]);
+    }
+}
+public static void concatInPlace(double[] a, double[] b, double[] out) {
+    System.arraycopy(a, 0, out, 0, a.length);
+    System.arraycopy(b, 0, out, a.length, b.length);
+}
+public static void clipGradientInPlace(double[] grad, double clipVal) {
+    if (clipVal <= 0.0) return;
+    double norm = 0.0;
+    for (double v : grad) norm += v * v;
+    norm = Math.sqrt(norm);
+    if (norm > clipVal) {
+        double scale = clipVal / norm;
+        for (int i = 0; i < grad.length; i++) {
+            grad[i] *= scale;
+        }
+    }
+}
+public static void sampleLatentInPlace(double[] mu, double[] logvar, double[] out) {
+    if (mu.length != logvar.length || mu.length != out.length) {
+        throw new IllegalArgumentException("Dimension mismatch in sampleLatentInPlace");
+    }
+
+    for (int i = 0; i < mu.length; i++) {
+        double std = Math.exp(0.5 * logvar[i]);
+        double eps = rand.nextGaussian(); // standard normal sample
+        out[i] = mu[i] + std * eps;
+    }
+}
+public static void applyDropoutInPlace(double[] x, double rate, Random rng) {
+    if (rate <= 0.0) return; // No-op if dropout is disabled
+
+    double scale = 1.0 / (1.0 - rate);
+    for (int i = 0; i < x.length; i++) {
+        x[i] = rng.nextDouble() < rate ? 0.0 : x[i] * scale;
+    }
+}
 
     /**
      * Compute the gradient of the ReLU activation function using the output as
@@ -222,6 +297,16 @@ public class CVAEHelper {
         }
         return grad;
     }    
+    public static double[] relu(double[] x) {
+        double[] out = new double[x.length];
+        for (int i = 0; i < x.length; i++) {
+            if (Double.isNaN(x[i]) || Double.isInfinite(x[i])) {
+                throw new RuntimeException("ReLU input contains NaN/Inf at index " + i + ": " + x[i]);
+            }
+            out[i] = Math.max(0.0, Math.min(50.0, x[i]));  // Clamp to [0, 50]
+        }
+        return out;
+    }
 
     /**
      * Element-wise vector addition

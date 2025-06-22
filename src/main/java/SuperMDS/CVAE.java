@@ -1,21 +1,30 @@
 package SuperMDS;
 
 import static SuperMDS.CVAEHelper.add;
+import static SuperMDS.CVAEHelper.addInPlace;
 import static SuperMDS.CVAEHelper.applyDropout;
+import static SuperMDS.CVAEHelper.applyDropoutInPlace;
 import static SuperMDS.CVAEHelper.clipGradient;
 import static SuperMDS.CVAEHelper.concat;
+import static SuperMDS.CVAEHelper.concatInPlace;
 import static SuperMDS.CVAEHelper.dot;
+import static SuperMDS.CVAEHelper.dotInPlace;
 import static SuperMDS.CVAEHelper.dotT;
+import static SuperMDS.CVAEHelper.dotTInPlace;
 import static SuperMDS.CVAEHelper.getCyclicalKLWeightSigmoid;
 import static SuperMDS.CVAEHelper.getKLWeight;
 import static SuperMDS.CVAEHelper.hasNaNsOrInfs;
 import static SuperMDS.CVAEHelper.initMatrix;
 import static SuperMDS.CVAEHelper.initVector;
 import static SuperMDS.CVAEHelper.mseGradient;
+import static SuperMDS.CVAEHelper.mseGradientInPlace;
 import static SuperMDS.CVAEHelper.mseLoss;
 import static SuperMDS.CVAEHelper.relu;
 import static SuperMDS.CVAEHelper.reluGrad;
+import static SuperMDS.CVAEHelper.reluGradInPlace;
+import static SuperMDS.CVAEHelper.reluInPlace;
 import static SuperMDS.CVAEHelper.sampleLatent;
+import static SuperMDS.CVAEHelper.sampleLatentInPlace;
 import static SuperMDS.CVAEHelper.slice;
 import static SuperMDS.CVAEHelper.updateMatrix;
 import static SuperMDS.CVAEHelper.updateVector;
@@ -76,6 +85,8 @@ public class CVAE {
     private boolean useDropout = true;    
     private boolean isTraining = false;
     
+    private final ThreadLocal<BufferSet> threadBuffers;
+    
     private int debugEpochCount = 10000;
     private boolean debug = false;
 
@@ -95,6 +106,9 @@ public class CVAE {
         this.latentDim = latentDim;
         this.hiddenDim = hiddenDim;
         rand = new Random();
+        threadBuffers = ThreadLocal.withInitial(() -> 
+            new BufferSet(inputDim, conditionDim, latentDim, hiddenDim));
+        
         int encInputDim = inputDim + conditionDim;    // Encoder input: [x | c]
         int decInputDim = latentDim + conditionDim;   // Decoder input: [z | c]
 
@@ -312,6 +326,139 @@ public class CVAE {
                 dL_dmu, dL_dlogvar,
                 z, c, d1, d2,
                 dL_dDec1, dL_dDec2, dL_dxRecon
+        );
+
+        currentEpoch.incrementAndGet();
+        return loss;
+    }
+    
+    public double trainBatchInPlace(double[][] xBatch, double[][] cBatch) {
+        int batchSize = xBatch.length;
+        double totalLoss = IntStream.range(0, batchSize).parallel()
+            .mapToDouble(i -> trainInPlace(xBatch[i], cBatch[i]))
+            .sum();
+        return totalLoss / batchSize;
+    }    
+    public double trainInPlace(double[] x, double[] c) {
+        BufferSet buf = threadBuffers.get();
+        buf.reset();
+
+        // ========== Forward Pass ==========
+        concatInPlace(x, c, buf.xc);  // buf.xc = x ⊕ c
+        dotInPlace(buf.xc, W_enc1, buf.h1);           // h1 = relu(W1·xc + b1)
+        addInPlace(buf.h1, b_enc1);
+        reluInPlace(buf.h1);
+        if (useDropout && isIsTraining()) applyDropoutInPlace(buf.h1, dropoutRate, rand);
+
+        dotInPlace(buf.h1, W_enc2, buf.h2);           // h2 = relu(W2·h1 + b2)
+        addInPlace(buf.h2, b_enc2);
+        reluInPlace(buf.h2);
+        if (useDropout && isIsTraining()) applyDropoutInPlace(buf.h2, dropoutRate, rand);
+
+        dotInPlace(buf.h2, W_mu, buf.mu);             // mu = W_mu·h2 + b_mu
+        addInPlace(buf.mu, b_mu);
+
+        dotInPlace(buf.h2, W_logvar, buf.logvar);     // logvar = W_logvar·h2 + b_logvar
+        addInPlace(buf.logvar, b_logvar);
+
+        // Clamp logvar and sample z using reparam trick
+        for (int i = 0; i < latentDim; i++) {
+            buf.safeLogvar[i] = Math.max(Math.min(buf.logvar[i], 10.0), -10.0);
+        }
+        sampleLatentInPlace(buf.mu, buf.safeLogvar, buf.z);
+        for (int i = 0; i < latentDim; i++) {
+            if (Math.abs(buf.z[i]) > 10.0)
+                buf.z[i] = Math.signum(buf.z[i]) * 10.0;
+        }
+
+        concatInPlace(buf.z, c, buf.zc);              // zc = z ⊕ c
+        dotInPlace(buf.zc, W_dec1, buf.d1);           // d1 = relu(W1·zc + b1)
+        addInPlace(buf.d1, b_dec1);
+        reluInPlace(buf.d1);
+        if (useDropout && isIsTraining()) applyDropoutInPlace(buf.d1, dropoutRate, rand);
+
+        dotInPlace(buf.d1, W_dec2, buf.d2);           // d2 = relu(W2·d1 + b2)
+        addInPlace(buf.d2, b_dec2);
+        reluInPlace(buf.d2);
+        if (useDropout && isIsTraining()) applyDropoutInPlace(buf.d2, dropoutRate, rand);
+
+        dotInPlace(buf.d2, W_decOut, buf.xRecon);     // recon = W3·d2 + b3
+        addInPlace(buf.xRecon, b_decOut);
+
+        for (int i = 0; i < buf.xRecon.length; i++) {
+            buf.xRecon[i] = Math.max(Math.min(buf.xRecon[i], 1e6), -1e6);
+        }
+
+        // ======== Loss =========
+        double reconLoss = mseLoss(x, buf.xRecon);
+        double klLoss = 0.0;
+        for (int i = 0; i < latentDim; i++) {
+            double var = Math.exp(buf.safeLogvar[i]);
+            klLoss += -0.5 * (1 + buf.safeLogvar[i] - buf.mu[i] * buf.mu[i] - var);
+        }
+
+        double klWeight = isUseCyclicalAnneal()
+            ? getCyclicalKLWeightSigmoid(currentEpoch.get(), getKlAnnealCycleLength(), maxKLWeight, getKlSharpness())
+            : getKLWeight(currentEpoch.get(), klWarmupEpochs, maxKLWeight, getKlSharpness());
+
+        double loss = reconLoss + klWeight * klLoss;
+
+        if (Double.isNaN(loss) || Double.isInfinite(loss)) {
+            if (debug) {
+                System.out.println("NaN loss at epoch " + currentEpoch.get());
+                System.out.println("x = " + Arrays.toString(x));
+                System.out.println("c = " + Arrays.toString(c));
+                System.out.println("xRecon = " + Arrays.toString(buf.xRecon));
+            }
+            throw new RuntimeException("NaN/Inf in loss");
+        }
+
+        if (debug && currentEpoch.get() % getDebugEpochCount() == 0) {
+            System.out.printf("Epoch %d — Recon: %.6f, KL: %.6f (w=%.3f), Total: %.6f\n",
+                currentEpoch.get(), reconLoss, klLoss, klWeight, loss);
+        }
+
+        // ========== Backward Pass ==========
+        mseGradientInPlace(buf.xRecon, x, buf.grad_xRecon);
+        dotTInPlace(buf.grad_xRecon, W_decOut, buf.dL_dDec2);
+        reluGradInPlace(buf.d2, buf.dL_dDec2, buf.dL_dDec2);
+
+        dotTInPlace(buf.dL_dDec2, W_dec2, buf.dL_dDec1);
+        reluGradInPlace(buf.d1, buf.dL_dDec1, buf.dL_dDec1);
+
+        dotTInPlace(buf.dL_dDec1, W_dec1, buf.dL_dZC);
+        System.arraycopy(buf.dL_dZC, 0, buf.dz, 0, latentDim);
+
+        // KL Gradients
+        for (int i = 0; i < latentDim; i++) {
+            double sigma = Math.exp(0.5 * buf.safeLogvar[i]);
+            double eps = (buf.z[i] - buf.mu[i]) / sigma;
+
+            buf.grad_mu[i] = buf.dz[i] + klWeight * buf.mu[i];
+            buf.grad_logvar[i] = 0.5 * buf.dz[i] * eps + klWeight * 0.5 * (Math.exp(buf.safeLogvar[i]) - 1);
+        }
+
+        dotTInPlace(buf.grad_mu, W_mu, buf.dmu_dh2);
+        dotTInPlace(buf.grad_logvar, W_logvar, buf.dlogvar_dh2);
+        addInPlace(buf.dmu_dh2, buf.dlogvar_dh2, buf.dL_dh2);
+
+        reluGradInPlace(buf.h2, buf.dL_dh2, buf.dL_dh2);
+        dotTInPlace(buf.dL_dh2, W_enc2, buf.dL_dh1);
+        reluGradInPlace(buf.h1, buf.dL_dh1, buf.dL_dh1);
+
+        // Gradient Clipping
+        clipGradient(buf.grad_xRecon, 5.0);
+        clipGradient(buf.grad_mu, 5.0);
+        clipGradient(buf.grad_logvar, 5.0);
+        clipGradient(buf.dL_dh2, 5.0);
+        clipGradient(buf.dL_dh1, 5.0);
+
+        updateParametersDeep(
+            buf.xc, buf.h1, buf.h2,
+            buf.dL_dh1, buf.dL_dh2,
+            buf.grad_mu, buf.grad_logvar,
+            buf.z, c, buf.d1, buf.d2,
+            buf.dL_dDec1, buf.dL_dDec2, buf.grad_xRecon
         );
 
         currentEpoch.incrementAndGet();

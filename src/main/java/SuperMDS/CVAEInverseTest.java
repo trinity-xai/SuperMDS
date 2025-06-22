@@ -91,8 +91,8 @@ public class CVAEInverseTest {
                     xBatch[i] = normalizedData[idx];
                     cBatch[i] = conditions[idx];
                 }
-
-                totalLoss += cvae.trainBatch(xBatch, cBatch);
+//                totalLoss += cvae.trainBatch(xBatch, cBatch);
+                totalLoss += cvae.trainBatchInPlace(xBatch, cBatch);
             }
         }
         cvae.setIsTraining(false);
