@@ -62,7 +62,12 @@ public class CVAEInverseTest {
         double[][] normalizedData = normalizer.normalizeAll(originalData);
         // Initialize CVAE
         CVAE cvae = new CVAE(inputDim, embeddingDim, latentDim, hiddenDim);
+        CVAEInPlace cvaeInPlace = new CVAEInPlace(inputDim, embeddingDim, latentDim, hiddenDim);
+        CVAESIMD cvaeSIMD = new CVAESIMD(inputDim, embeddingDim, latentDim, hiddenDim);
+        
         cvae.setDebug(false);
+        cvae.setUseSIMD(true);
+        cvae.setUseDropout(false);
         // Sanity check: set conditional to first 3 dimensions of original input
         Normalizer embeddingNormalizer = new Normalizer(mdsEmbedding, Normalizer.Type.Z_SCORE);
         double[][] normalizedEmbedding = embeddingNormalizer.normalizeAll(mdsEmbedding);
@@ -91,8 +96,9 @@ public class CVAEInverseTest {
                     xBatch[i] = normalizedData[idx];
                     cBatch[i] = conditions[idx];
                 }
-//                totalLoss += cvae.trainBatch(xBatch, cBatch);
-                totalLoss += cvae.trainBatchInPlace(xBatch, cBatch);
+                totalLoss += cvae.trainBatch(xBatch, cBatch);
+//                totalLoss += cvaeInPlace.trainBatchInPlace(xBatch, cBatch);
+//                totalLoss += cvaeSIMD.trainBatchInPlaceSIMD(xBatch, cBatch);
             }
         }
         cvae.setIsTraining(false);

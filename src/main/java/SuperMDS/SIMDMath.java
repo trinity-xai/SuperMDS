@@ -54,7 +54,7 @@ public class SIMDMath {
             grad[i] = output[i] > 0.0 ? upstream[i] : 0.0;
         }
     }
-    public static void sampleLatentInPlaceSIMD(double[] mu, double[] logvar, double[] z, SIMDRandomBuffer rng) {
+    public static void sampleLatentInPlaceSIMD(double[] mu, double[] logvar, double[] z, RandomBuffer rng) {
         int len = mu.length;
         double[] eps = new double[len];
         rng.nextGaussianBatch(eps); // Fill with N(0,1) samples
@@ -78,7 +78,7 @@ public class SIMDMath {
             z[i] = mu[i] + std * eps[i];
         }
     }
-    public static void applyDropoutInPlaceSIMD(double[] input, double[] output, double rate, SIMDRandomBuffer rng) {
+    public static void applyDropoutInPlaceSIMD(double[] input, double[] output, double rate, RandomBuffer rng) {
         int len = input.length;
         double invKeepProb = 1.0 / (1.0 - rate);
 
@@ -164,6 +164,36 @@ public class SIMDMath {
             out[i] = sum;
         }
     }
+    /**
+     * Computes the Mean Squared Error (MSE) loss between two vectors using SIMD acceleration.
+     *
+     * @param target Ground-truth target vector (e.g., original input x)
+     * @param output Reconstructed output vector (e.g., xRecon)
+     * @return The MSE loss: mean((target - output)^2)
+     */
+    public static double mseLossSIMD(double[] target, double[] output) {
+        int length = target.length;
+        int i = 0;
+        double sum = 0.0;
+        DoubleVector acc = DoubleVector.zero(SPECIES);
+
+        for (; i <= length - SPECIES.length(); i += SPECIES.length()) {
+            var tVec = DoubleVector.fromArray(SPECIES, target, i);
+            var oVec = DoubleVector.fromArray(SPECIES, output, i);
+            var diff = tVec.sub(oVec);
+            acc = acc.add(diff.mul(diff));
+        }
+
+        sum += acc.reduceLanes(VectorOperators.ADD);
+
+        // Tail handling
+        for (; i < length; i++) {
+            double d = target[i] - output[i];
+            sum += d * d;
+        }
+
+        return sum / length;
+    }    
     public static void mseGradient_SIMD(double[] predicted, double[] target, double[] out) {
         int len = predicted.length;
         double scale = 2.0 / len;
@@ -225,6 +255,72 @@ public class SIMDMath {
             out[j] = sum;
         }
     }
+
+public static void dotSIMD_T(double[] x, double[][] W_T, double[] out) {
+    int cols = W_T.length;        // output dimension
+    int rows = W_T[0].length;     // input dimension
+    if (x.length != rows) {
+        throw new IllegalArgumentException("Input vector and W_T column size mismatch: " +
+            x.length + " vs " + rows);
+    }
+    for (int j = 0; j < cols; j++) {
+        double sum = 0.0;
+        int i = 0;
+        var vSum = DoubleVector.zero(SPECIES);
+
+        int bound = SPECIES.loopBound(rows);
+        for (; i < bound; i += SPECIES.length()) {
+            var vx = DoubleVector.fromArray(SPECIES, x, i);
+            var vw = DoubleVector.fromArray(SPECIES, W_T[j], i);
+            vSum = vSum.add(vx.mul(vw));
+        }
+
+        sum = vSum.reduceLanes(VectorOperators.ADD);
+
+        for (; i < rows; i++) {
+            sum += x[i] * W_T[j][i];
+        }
+
+        out[j] = sum;
+    }
+}
+    
+public static double[][] transposeMatrix(double[][] matrix) {
+    int rows = matrix.length;
+    int cols = matrix[0].length;
+    double[][] result = new double[cols][rows];
+    for (int i = 0; i < rows; i++)
+        for (int j = 0; j < cols; j++)
+            result[j][i] = matrix[i][j];
+    return result;
+}    
+public static void dotSIMD_Optimized(double[] x, double[][] W_T, double[] out) {
+    int cols = W_T.length;
+    int rows = W_T[0].length;
+
+    for (int j = 0; j < cols; j++) {
+        var sumVec = DoubleVector.zero(SPECIES);
+        int i = 0;
+
+        double[] wCol = W_T[j]; // Transposed column j
+
+        while (i < SPECIES.loopBound(rows)) {
+            var vx = DoubleVector.fromArray(SPECIES, x, i);
+            var vw = DoubleVector.fromArray(SPECIES, wCol, i);
+            sumVec = vx.fma(vw, sumVec);  // fused multiply-add
+            i += SPECIES.length();
+        }
+
+        double sum = sumVec.reduceLanes(VectorOperators.ADD);
+
+        for (; i < rows; i++) {
+            sum += x[i] * wCol[i];
+        }
+
+        out[j] = sum;
+    }
+}
+    
     /**
      * Computes the dot product of dy with the transpose of W and stores the
      * result in 'out'. Equivalent to: out = W^T * dy

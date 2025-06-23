@@ -65,7 +65,7 @@ public class FusedSIMDMath {
      * Fused affine transformation + dropout + ReLU
      */
     public static void fusedAffineDropoutSIMD(double[] input, double[][] weights, double[] bias,
-                                              double[] output, SIMDRandomBuffer randBuffer,
+                                              double[] output, RandomBuffer randBuffer,
                                               double dropoutRate) {
         int rows = weights.length;
         int cols = input.length;

@@ -6,14 +6,14 @@ import java.util.concurrent.ThreadLocalRandom;
  * Provides thread-safe, pre-buffered random values for SIMD operations.
  * @author Sean Phillips
  */
-public class SIMDRandomBuffer {
+public class RandomBuffer {
     private final double[] uniformBuffer;
     private final double[] gaussianBuffer;
     private int cursorUniform = 0;
     private int cursorGaussian = 0;
     private final int size;
 
-    public SIMDRandomBuffer(int size) {
+    public RandomBuffer(int size) {
         this.size = size;
         this.uniformBuffer = new double[size];
         this.gaussianBuffer = new double[size];

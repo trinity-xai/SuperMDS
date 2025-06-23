@@ -422,8 +422,22 @@ public static void applyDropoutInPlace(double[] x, double rate, Random rng) {
             }
         }
     }
+    public static void assertShape(double[][] matrix, int expectedRows, int expectedCols, String name) {
+        if (matrix.length != expectedRows || matrix[0].length != expectedCols) {
+            throw new IllegalArgumentException(
+                String.format("Shape mismatch in %s: expected [%d][%d], found [%d][%d]",
+                    name, expectedRows, expectedCols, matrix.length, matrix[0].length));
+        }
+    }
 
-    /**
+    public static void assertLength(double[] vector, int expectedLength, String name) {
+        if (vector.length != expectedLength) {
+            throw new IllegalArgumentException(
+                String.format("Length mismatch in %s: expected %d, found %d",
+                    name, expectedLength, vector.length));
+        }
+    }
+        /**
      * Compute mean squared error loss between vectors a and b
      */
     public static double mseLoss(double[] target, double[] predicted) {
