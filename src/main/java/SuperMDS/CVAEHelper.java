@@ -200,6 +200,19 @@ public static void reluInPlace(double[] x) {
         x[i] = Math.max(0.0, Math.min(50.0, x[i]));
     }
 }    
+public static void addMatrixInPlace(double[][] target, double[][] src) {
+    for (int i = 0; i < target.length; i++) {
+        for (int j = 0; j < target[i].length; j++) {
+            target[i][j] += src[i][j];
+        }
+    }
+}
+
+public static void addVectorInPlace(double[] target, double[] src) {
+    for (int i = 0; i < target.length; i++) {
+        target[i] += src[i];
+    }
+}
 public static void addInPlace(double[] a, double[] b) {
     for (int i = 0; i < a.length; i++) {
         a[i] += b[i];
@@ -260,14 +273,14 @@ public static void clipGradientInPlace(double[] grad, double clipVal) {
         }
     }
 }
-public static void sampleLatentInPlace(double[] mu, double[] logvar, double[] out) {
+public static void sampleLatentInPlace(double[] mu, double[] logvar, double[] out, Random rng) {
     if (mu.length != logvar.length || mu.length != out.length) {
         throw new IllegalArgumentException("Dimension mismatch in sampleLatentInPlace");
     }
 
     for (int i = 0; i < mu.length; i++) {
         double std = Math.exp(0.5 * logvar[i]);
-        double eps = rand.nextGaussian(); // standard normal sample
+        double eps = rng.nextGaussian(); // standard normal sample
         out[i] = mu[i] + std * eps;
     }
 }
@@ -279,7 +292,105 @@ public static void applyDropoutInPlace(double[] x, double rate, Random rng) {
         x[i] = rng.nextDouble() < rate ? 0.0 : x[i] * scale;
     }
 }
+// Accumulate gradient of outer product into gradMatrix
+public static void accumulateOuterProduct(double[][] gradMatrix, double[] input, double[] gradOut) {
+    for (int i = 0; i < input.length; i++) {
+        double inVal = input[i];
+        for (int j = 0; j < gradOut.length; j++) {
+            gradMatrix[i][j] += inVal * gradOut[j];
+        }
+    }
+}
 
+public static void accumulateMatrix(double[][] target, double[][] source) {
+    for (int i = 0; i < target.length; i++) {
+        for (int j = 0; j < target[i].length; j++) {
+            target[i][j] += source[i][j];
+        }
+    }
+}
+
+public static void accumulateVector(double[] target, double[] source) {
+    for (int i = 0; i < target.length; i++) {
+        target[i] += source[i];
+    }
+}
+
+// Apply the accumulated gradients once
+public static void applyUpdate(double[][] W, double[][] gradW, double lr) {
+    for (int i = 0; i < W.length; i++) {
+        for (int j = 0; j < W[i].length; j++) {
+            W[i][j] -= lr * gradW[i][j];
+        }
+    }
+}
+
+public static void applyUpdate(double[] b, double[] gradB, double lr) {
+    for (int i = 0; i < b.length; i++) {
+        b[i] -= lr * gradB[i];
+    }
+}
+
+public static void accumulateBias(double[] gradB, double[] gradOut) {
+    for (int i = 0; i < gradB.length; i++) {
+        gradB[i] += gradOut[i];
+    }
+}
+public static void scaleMatrixInPlace(double[][] mat, double scale) {
+    for (int i = 0; i < mat.length; i++) {
+        for (int j = 0; j < mat[i].length; j++) {
+            mat[i][j] *= scale;
+        }
+    }
+}
+
+public static void scaleVectorInPlace(double[] vec, double scale) {
+    for (int i = 0; i < vec.length; i++) {
+        vec[i] *= scale;
+    }
+}
+public static void accumulateInto(BufferSet target, BufferSet source) {
+    // --- Encoder ---
+    accumulateMatrix(target.grad_W_enc1, source.grad_W_enc1);
+    accumulateVector(target.grad_b_enc1, source.grad_b_enc1);
+
+    accumulateMatrix(target.grad_W_enc2, source.grad_W_enc2);
+    accumulateVector(target.grad_b_enc2, source.grad_b_enc2);
+
+    accumulateMatrix(target.grad_W_mu, source.grad_W_mu);
+    accumulateVector(target.grad_b_mu, source.grad_b_mu);
+
+    accumulateMatrix(target.grad_W_logvar, source.grad_W_logvar);
+    accumulateVector(target.grad_b_logvar, source.grad_b_logvar);
+
+    // --- Decoder ---
+    accumulateMatrix(target.grad_W_dec1, source.grad_W_dec1);
+    accumulateVector(target.grad_b_dec1, source.grad_b_dec1);
+
+    accumulateMatrix(target.grad_W_dec2, source.grad_W_dec2);
+    accumulateVector(target.grad_b_dec2, source.grad_b_dec2);
+
+    accumulateMatrix(target.grad_W_decOut, source.grad_W_decOut);
+    accumulateVector(target.grad_b_decOut, source.grad_b_decOut);
+}
+
+public static void scaleGradientsInPlace(BufferSet buf, double scale) {
+    scaleMatrixInPlace(buf.grad_W_enc1, scale);
+    scaleVectorInPlace(buf.grad_b_enc1, scale);
+    scaleMatrixInPlace(buf.grad_W_enc2, scale);
+    scaleVectorInPlace(buf.grad_b_enc2, scale);
+    scaleMatrixInPlace(buf.grad_W_mu, scale);
+    scaleVectorInPlace(buf.grad_b_mu, scale);
+    scaleMatrixInPlace(buf.grad_W_logvar, scale);
+    scaleVectorInPlace(buf.grad_b_logvar, scale);
+
+    scaleMatrixInPlace(buf.grad_W_dec1, scale);
+    scaleVectorInPlace(buf.grad_b_dec1, scale);
+    scaleMatrixInPlace(buf.grad_W_dec2, scale);
+    scaleVectorInPlace(buf.grad_b_dec2, scale);
+    scaleMatrixInPlace(buf.grad_W_decOut, scale);
+    scaleVectorInPlace(buf.grad_b_decOut, scale);
+}
     /**
      * Compute the gradient of the ReLU activation function using the output as
      * a mask. This is the elementwise product of the upstream gradient and the

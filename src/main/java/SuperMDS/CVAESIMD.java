@@ -95,6 +95,7 @@ public class CVAESIMD {
     
     private final ThreadLocal<BufferSet> threadBuffers;
     private final ThreadLocal<RandomBuffer> threadRngBuffer;
+    ThreadLocal<Random> threadLocalRandom;    
     private Random rand;
 
     private int debugEpochCount = 10000;
@@ -120,7 +121,9 @@ public class CVAESIMD {
          threadBuffers = ThreadLocal.withInitial(() ->
              new BufferSet(inputDim, conditionDim, latentDim, hiddenDim));
          threadRngBuffer = ThreadLocal.withInitial(() -> new RandomBuffer(4096));
-
+        threadLocalRandom = ThreadLocal.withInitial(() 
+            -> new Random(System.nanoTime()));
+        
          int encInputDim = inputDim + conditionDim;    // Encoder input: [x | c]
          int decInputDim = latentDim + conditionDim;   // Decoder input: [z | c]
 
@@ -385,7 +388,7 @@ public class CVAESIMD {
         for (int i = 0; i < latentDim; i++) {
             buf.safeLogvar[i] = Math.max(Math.min(buf.logvar[i], 10.0), -10.0);
         }
-        sampleLatentInPlace(buf.mu, buf.safeLogvar, buf.z);
+        sampleLatentInPlace(buf.mu, buf.safeLogvar, buf.z, threadLocalRandom.get());
         for (int i = 0; i < latentDim; i++) {
             if (Math.abs(buf.z[i]) > 10.0)
                 buf.z[i] = Math.signum(buf.z[i]) * 10.0;
