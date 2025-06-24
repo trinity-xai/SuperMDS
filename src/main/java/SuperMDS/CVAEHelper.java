@@ -9,9 +9,6 @@ import java.util.Random;
  * @author Sean Phillips
  */
 public class CVAEHelper {
-
-    private static Random rand = new Random();
-
     /**
      * Compute the current KL annealing weight using a sigmoid ramp-up schedule.
      * This method gradually increases the weight of the KL divergence term
@@ -92,9 +89,10 @@ public class CVAEHelper {
      * @param forReLU If true, uses He initialization (recommended for ReLU
      * activations). If false, uses Xavier Glorot initialization (recommended
      * for tanh or linear activations).
+     * @param rand
      * @return A 2D array representing the initialized weight matrix.
      */
-    public static double[][] initMatrix(int in, int out, boolean forReLU) {
+    public static double[][] initMatrix(int in, int out, boolean forReLU, Random rand) {
         double[][] mat = new double[in][out];
 
         if (forReLU) {
@@ -152,7 +150,7 @@ public class CVAEHelper {
         return output;
     }    
 
-    public static int[] shuffledIndices(int n) {
+    public static int[] shuffledIndices(int n, Random rand) {
         int[] indices = new int[n];
         for (int i = 0; i < n; i++) {
             indices[i] = i;
@@ -184,9 +182,10 @@ public class CVAEHelper {
      *
      * @param mu Mean vector of latent distribution
      * @param logvar Log variance vector of latent distribution
+     * @param rand
      * @return Sampled latent vector z
      */
-    public static double[] sampleLatent(double[] mu, double[] logvar) {
+    public static double[] sampleLatent(double[] mu, double[] logvar, Random rand) {
         double[] z = new double[mu.length];
         for (int i = 0; i < z.length; i++) {
             double eps = rand.nextGaussian(); // Standard normal noise

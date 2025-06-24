@@ -60,18 +60,7 @@ public class CVAEInverseTest {
         //Sanity check on CVAE
         Normalizer normalizer = new Normalizer(originalData, Normalizer.Type.Z_SCORE);
         double[][] normalizedData = normalizer.normalizeAll(originalData);
-        // Initialize CVAE
-//        CVAESIMD cvaeSIMD = new CVAESIMD(inputDim, embeddingDim, latentDim, hiddenDim);
-//        CVAE cvae = new CVAE(inputDim, embeddingDim, latentDim, hiddenDim);
-//        cvae.setDebug(false);
-//        cvae.setUseSIMD(false);
-//        cvae.setUseDropout(false);
-//        cvae.setIsTraining(true);
 
-        CVAEInPlace cvaeInPlace = new CVAEInPlace(inputDim, embeddingDim, latentDim, hiddenDim);
-        cvaeInPlace.setDebug(false);
-        cvaeInPlace.setUseSIMD(false);
-        cvaeInPlace.setUseDropout(false);
         // Sanity check: set conditional to first 3 dimensions of original input
         Normalizer embeddingNormalizer = new Normalizer(mdsEmbedding, Normalizer.Type.Z_SCORE);
         double[][] normalizedEmbedding = embeddingNormalizer.normalizeAll(mdsEmbedding);
@@ -79,48 +68,61 @@ public class CVAEInverseTest {
         for (int i = 0; i < numPoints; i++) {
             conditions[i] = normalizedEmbedding[i];  // full 3D embedding as condition
         }
-        
-        // Train the CVAE
-        System.out.println("Training CVAE...");
-        startTime = System.nanoTime();
 
-        for (int epoch = 0; epoch < epochs; epoch++) {
-            double totalLoss = 0.0;
-            int numBatches = numPoints / batchSize;
+        for(int outerLoop=0;outerLoop<10;outerLoop++) {
+            // Initialize CVAE
+    //        CVAESIMD cvaeSIMD = new CVAESIMD(inputDim, embeddingDim, latentDim, hiddenDim);
+            CVAE cvae = new CVAE(inputDim, embeddingDim, latentDim, hiddenDim);
+            cvae.setDebug(false);
+            cvae.setUseDropout(false);
+            cvae.setIsTraining(true);
 
-            // Shuffle the dataset at the beginning of each epoch
-            int[] indices = shuffledIndices(numPoints);
+    //        CVAEInPlace cvaeInPlace = new CVAEInPlace(inputDim, embeddingDim, latentDim, hiddenDim);
+    //        cvaeInPlace.setDebug(false);
+    //        cvaeInPlace.setUseSIMD(false);
+    //        cvaeInPlace.setUseDropout(false);        
 
-            for (int b = 0; b < numBatches; b++) {
-                double[][] xBatch = new double[batchSize][inputDim];
-                double[][] cBatch = new double[batchSize][embeddingDim];
+            // Train the CVAE
+            System.out.println("Training CVAE...");
+            startTime = System.nanoTime();
 
-                for (int i = 0; i < batchSize; i++) {
-                    int idx = indices[b * batchSize + i];
-                    xBatch[i] = normalizedData[idx];
-                    cBatch[i] = conditions[idx];
+            for (int epoch = 0; epoch < epochs; epoch++) {
+                double totalLoss = 0.0;
+                int numBatches = numPoints / batchSize;
+
+                // Shuffle the dataset at the beginning of each epoch
+                int[] indices = shuffledIndices(numPoints, cvae.threadLocalRandom.get());
+
+                for (int b = 0; b < numBatches; b++) {
+                    double[][] xBatch = new double[batchSize][inputDim];
+                    double[][] cBatch = new double[batchSize][embeddingDim];
+
+                    for (int i = 0; i < batchSize; i++) {
+                        int idx = indices[b * batchSize + i];
+                        xBatch[i] = normalizedData[idx];
+                        cBatch[i] = conditions[idx];
+                    }
+                    totalLoss += cvae.trainBatch(xBatch, cBatch);
+    //                totalLoss += cvaeInPlace.trainBatchInPlaceParallel(xBatch, cBatch);
+    //                totalLoss += cvaeSIMD.trainBatchInPlaceSIMD(xBatch, cBatch);
                 }
-//                totalLoss += cvae.trainBatch(xBatch, cBatch);
-                totalLoss += cvaeInPlace.trainBatchInPlaceParallel(xBatch, cBatch);
-//                totalLoss += cvaeSIMD.trainBatchInPlaceSIMD(xBatch, cBatch);
             }
-        }
-        //cvae.setIsTraining(false);
+            cvae.setIsTraining(false);
 
-        printTotalTime(startTime);
-        // Test inverseTransform
-        System.out.println("\nEvaluating reconstruction error...");
-        double totalReconError = 0.0;
-        for (int i = 0; i < numPoints; i++) {
-//            double[] recon = cvae.inverseTransform(mdsEmbedding[i]);
-            double[] recon = cvaeInPlace.inverseTransform(conditions[i]);
-//            double mse = mseLoss(originalData[i], recon);
-            double mse = mseLoss(normalizedData[i], recon);
-            totalReconError += mse;
-            //System.out.printf("Point %3d - MSE: %.6f%n", i, mse);
-        }
+            printTotalTime(startTime);
+            // Test inverseTransform
+            double totalReconError = 0.0;
+            for (int i = 0; i < numPoints; i++) {
+                double[] recon = cvae.inverseTransform(conditions[i]);
+    //            double[] recon = cvaeInPlace.inverseTransform(mdsEmbedding[i]);
+    //            double[] recon = cvaeInPlace.inverseTransform(conditions[i]);
+    //            double mse = mseLoss(originalData[i], recon);
+                double mse = mseLoss(normalizedData[i], recon);
+                totalReconError += mse;
+            }
 
-        double avgReconError = totalReconError / numPoints;
-        System.out.printf("\nAverage Reconstruction MSE: %.6f%n", avgReconError);
+            double avgReconError = totalReconError / numPoints;
+            System.out.printf("\nAverage Reconstruction MSE: %.6f%n", avgReconError);
+        }
     }
 }

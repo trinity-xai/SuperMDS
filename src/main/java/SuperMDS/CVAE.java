@@ -1,30 +1,21 @@
 package SuperMDS;
 
 import static SuperMDS.CVAEHelper.add;
-import static SuperMDS.CVAEHelper.addInPlace;
 import static SuperMDS.CVAEHelper.applyDropout;
-import static SuperMDS.CVAEHelper.applyDropoutInPlace;
 import static SuperMDS.CVAEHelper.clipGradient;
 import static SuperMDS.CVAEHelper.concat;
-import static SuperMDS.CVAEHelper.concatInPlace;
 import static SuperMDS.CVAEHelper.dot;
-import static SuperMDS.CVAEHelper.dotInPlace;
 import static SuperMDS.CVAEHelper.dotT;
-import static SuperMDS.CVAEHelper.dotTInPlace;
 import static SuperMDS.CVAEHelper.getCyclicalKLWeightSigmoid;
 import static SuperMDS.CVAEHelper.getKLWeight;
 import static SuperMDS.CVAEHelper.hasNaNsOrInfs;
 import static SuperMDS.CVAEHelper.initMatrix;
 import static SuperMDS.CVAEHelper.initVector;
 import static SuperMDS.CVAEHelper.mseGradient;
-import static SuperMDS.CVAEHelper.mseGradientInPlace;
 import static SuperMDS.CVAEHelper.mseLoss;
 import static SuperMDS.CVAEHelper.relu;
 import static SuperMDS.CVAEHelper.reluGrad;
-import static SuperMDS.CVAEHelper.reluGradInPlace;
-import static SuperMDS.CVAEHelper.reluInPlace;
 import static SuperMDS.CVAEHelper.sampleLatent;
-import static SuperMDS.CVAEHelper.sampleLatentInPlace;
 import static SuperMDS.CVAEHelper.slice;
 import static SuperMDS.CVAEHelper.updateMatrix;
 import static SuperMDS.CVAEHelper.updateVector;
@@ -83,12 +74,10 @@ public class CVAE {
     private double dropoutRate = 0.01; // 20% dropout is typical
     private boolean useDropout = true;    
     private boolean isTraining = false;
-    private boolean useSIMD = false;
     
-    private final ThreadLocal<BufferSet> threadBuffers;
-    private final ThreadLocal<RandomBuffer> threadRngBuffer;
-    private Random rand;
-
+    private long seed = 42L;
+    
+    ThreadLocal<Random> threadLocalRandom;    
     private int debugEpochCount = 10000;
     private boolean debug = false;
 
@@ -107,89 +96,36 @@ public class CVAE {
          this.conditionDim = conditionDim;
          this.latentDim = latentDim;
          this.hiddenDim = hiddenDim;
-         this.rand = new Random();
-
-         threadBuffers = ThreadLocal.withInitial(() ->
-             new BufferSet(inputDim, conditionDim, latentDim, hiddenDim));
-         threadRngBuffer = ThreadLocal.withInitial(() -> new RandomBuffer(4096));
+        threadLocalRandom = ThreadLocal.withInitial(() 
+            -> new Random(seed));
 
          int encInputDim = inputDim + conditionDim;    // Encoder input: [x | c]
          int decInputDim = latentDim + conditionDim;   // Decoder input: [z | c]
-
+         Random rand = threadLocalRandom.get();
          // === Encoder ===
-         W_enc1 = initMatrix(encInputDim, hiddenDim, true);  // He init for ReLU
+         W_enc1 = initMatrix(encInputDim, hiddenDim, true, rand);  // He init for ReLU
          b_enc1 = initVector(hiddenDim);
 
-         W_enc2 = initMatrix(hiddenDim, hiddenDim, true);    // He init
+         W_enc2 = initMatrix(hiddenDim, hiddenDim, true, rand);    // He init
          b_enc2 = initVector(hiddenDim);
 
-         W_mu = initMatrix(hiddenDim, latentDim, false);     // Xavier init
+         W_mu = initMatrix(hiddenDim, latentDim, false, rand);     // Xavier init
          b_mu = initVector(latentDim);
 
-         W_logvar = initMatrix(hiddenDim, latentDim, false); // Xavier init
+         W_logvar = initMatrix(hiddenDim, latentDim, false, rand); // Xavier init
          b_logvar = initVector(latentDim);
 
          // === Decoder ===
-         W_dec1 = initMatrix(decInputDim, hiddenDim, true);  // He init
+         W_dec1 = initMatrix(decInputDim, hiddenDim, true, rand);  // He init
          b_dec1 = initVector(hiddenDim);
 
-         W_dec2 = initMatrix(hiddenDim, hiddenDim, true);    // He init
+         W_dec2 = initMatrix(hiddenDim, hiddenDim, true, rand);    // He init
          b_dec2 = initVector(hiddenDim);
 
          //Row Major way
-        W_decOut = initMatrix(hiddenDim, inputDim, false);  // Xavier init
+         W_decOut = initMatrix(hiddenDim, inputDim, false, rand);  // Xavier init
          b_decOut = initVector(inputDim);
      }
-
-    /**
-     * Encoder forward pass: input + condition → deep hidden representation
-     * using 3 hidden layers with ReLU activation.
-     *
-     * @param x Input vector (e.g. original high-dimensional point)
-     * @param c Condition vector (e.g. 2D or 3D embedding from MDS)
-     * @return Final hidden layer activation vector (depth = hiddenDim)
-     */
-    public double[] encode(double[] x, double[] c) {
-        // Step 1: Concatenate input and condition vectors
-        double[] xc = concat(x, c); // [inputDim + conditionDim]
-
-        // Step 2: Hidden layer 1
-        double[] h1 = relu(add(dot(xc, W_enc1), b_enc1)); // [hiddenDim]
-        if (useDropout) h1 = applyDropout(h1, dropoutRate, rand);
-        
-        // Step 3: Hidden layer 2
-        double[] h2 = relu(add(dot(h1, W_enc2), b_enc2)); // [hiddenDim]
-        if (useDropout) h2 = applyDropout(h2, dropoutRate, rand);
-        
-        return h2;
-    }
-
-    /**
-     * Decoder forward pass: latent vector + condition → reconstruction. Uses 3
-     * hidden layers with ReLU activations followed by a linear output layer.
-     *
-     * @param z Latent vector (sampled or reparameterized vector from encoder)
-     * @param c Condition vector (e.g., embedding from SMACOF MDS)
-     * @return Reconstructed input vector (linear output, same shape as original
-     * input)
-     */
-    public double[] decode(double[] z, double[] c) {
-        // Step 1: Concatenate latent vector and condition vector
-        double[] zc = concat(z, c); // [latentDim + conditionDim]
-
-        // Step 2: Hidden layer 1
-        double[] h1 = relu(add(dot(zc, W_dec1), b_dec1)); // [hiddenDim]
-        if (useDropout && isIsTraining()) h1 = applyDropout(h1, dropoutRate, rand);
-        
-        // Step 3: Hidden layer 2
-        double[] h2 = relu(add(dot(h1, W_dec2), b_dec2)); // [hiddenDim]
-        if (useDropout && isIsTraining()) h2 = applyDropout(h2, dropoutRate, rand);
-        
-        // Step 4: Final linear output (no activation)
-        double[] out = add(dot(h2, W_decOut), b_decOut); // [inputDim]
-
-        return out;
-    }
 
     public double trainBatch(double[][] xBatch, double[][] cBatch) {
         int batchSize = xBatch.length;
@@ -228,7 +164,7 @@ public class CVAE {
             safeLogvar[i] = Math.max(Math.min(logvar[i], 10.0), -10.0);
         }
 
-        double[] z = sampleLatent(mu, safeLogvar);
+        double[] z = sampleLatent(mu, safeLogvar, threadLocalRandom.get());
         for (int i = 0; i < z.length; i++) {
             if (Math.abs(z[i]) > 10.0) {
                 z[i] = Math.signum(z[i]) * 10.0;
@@ -369,7 +305,6 @@ public class CVAE {
         updateMatrix(W_decOut, d2, dL_dxRecon, getLearningRate());
         updateVector(b_decOut, dL_dxRecon, getLearningRate());
     }
-
     /**
      * Reconstructs an input vector from a given condition vector (e.g., MDS
      * embedding). Uses a standard Gaussian latent vector (z ~ N(0, I)) as the
@@ -386,12 +321,60 @@ public class CVAE {
         // Use a standard normal latent vector (z ~ N(0, I))
         double[] z = new double[latentDim];
         for (int i = 0; i < latentDim; i++) {
-            z[i] = rand.nextGaussian(); // sample from N(0,1)
+            z[i] = threadLocalRandom.get().nextGaussian(); // sample from N(0,1)
         }
 
         return decode(z, condition);
     }
+    /**
+     * Decoder forward pass: latent vector + condition → reconstruction. Uses 3
+     * hidden layers with ReLU activations followed by a linear output layer.
+     *
+     * @param z Latent vector (sampled or reparameterized vector from encoder)
+     * @param c Condition vector (e.g., embedding from SMACOF MDS)
+     * @return Reconstructed input vector (linear output, same shape as original
+     * input)
+     */
+    public double[] decode(double[] z, double[] c) {
+        // Step 1: Concatenate latent vector and condition vector
+        double[] zc = concat(z, c); // [latentDim + conditionDim]
+        Random rand = threadLocalRandom.get();
+        // Step 2: Hidden layer 1
+        double[] h1 = relu(add(dot(zc, W_dec1), b_dec1)); // [hiddenDim]
+        if (useDropout && isIsTraining()) h1 = applyDropout(h1, dropoutRate, rand);
+        
+        // Step 3: Hidden layer 2
+        double[] h2 = relu(add(dot(h1, W_dec2), b_dec2)); // [hiddenDim]
+        if (useDropout && isIsTraining()) h2 = applyDropout(h2, dropoutRate, rand);
+        
+        // Step 4: Final linear output (no activation)
+        double[] out = add(dot(h2, W_decOut), b_decOut); // [inputDim]
 
+        return out;
+    }
+    /**
+     * Encoder forward pass: input + condition → deep hidden representation
+     * using 3 hidden layers with ReLU activation.
+     *
+     * @param x Input vector (e.g. original high-dimensional point)
+     * @param c Condition vector (e.g. 2D or 3D embedding from MDS)
+     * @return Final hidden layer activation vector (depth = hiddenDim)
+     */
+    public double[] encode(double[] x, double[] c) {
+        // Step 1: Concatenate input and condition vectors
+        double[] xc = concat(x, c); // [inputDim + conditionDim]
+        Random rand = threadLocalRandom.get();
+        // Step 2: Hidden layer 1
+        double[] h1 = relu(add(dot(xc, W_enc1), b_enc1)); // [hiddenDim]
+        if (useDropout) h1 = applyDropout(h1, dropoutRate, rand);
+        
+        // Step 3: Hidden layer 2
+        double[] h2 = relu(add(dot(h1, W_enc2), b_enc2)); // [hiddenDim]
+        if (useDropout) h2 = applyDropout(h2, dropoutRate, rand);
+        
+        return h2;
+    }
+    
     /**
      * Deterministic inverse transform using zero latent vector. Useful for
      * evaluating the mean reconstruction.
@@ -400,21 +383,7 @@ public class CVAE {
         double[] z = new double[latentDim]; // all zeros
         return decode(z, condition);
     }
-private void assertShape(double[][] matrix, int expectedRows, int expectedCols, String name) {
-    if (matrix.length != expectedRows || matrix[0].length != expectedCols) {
-        throw new IllegalArgumentException(
-            String.format("Shape mismatch in %s: expected [%d][%d], found [%d][%d]",
-                name, expectedRows, expectedCols, matrix.length, matrix[0].length));
-    }
-}
 
-private void assertLength(double[] vector, int expectedLength, String name) {
-    if (vector.length != expectedLength) {
-        throw new IllegalArgumentException(
-            String.format("Length mismatch in %s: expected %d, found %d",
-                name, expectedLength, vector.length));
-    }
-}
     //<editor-fold defaultstate="collapsed" desc="Properties">
     /**
      * Set the current training epoch, used for KL annealing. Should be called
@@ -580,21 +549,6 @@ private void assertLength(double[] vector, int expectedLength, String name) {
      */
     public void setIsTraining(boolean isTraining) {
         this.isTraining = isTraining;
-    }
-
-
-    /**
-     * @return the useSIMD
-     */
-    public boolean isUseSIMD() {
-        return useSIMD;
-    }
-
-    /**
-     * @param useSIMD the useSIMD to set
-     */
-    public void setUseSIMD(boolean useSIMD) {
-        this.useSIMD = useSIMD;
     }
     //</editor-fold>    
 }

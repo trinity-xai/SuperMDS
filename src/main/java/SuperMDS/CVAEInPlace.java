@@ -25,8 +25,6 @@ import static SuperMDS.CVAEHelper.reluGradInPlace;
 import static SuperMDS.CVAEHelper.reluInPlace;
 import static SuperMDS.CVAEHelper.sampleLatentInPlace;
 import static SuperMDS.CVAEHelper.scaleGradientsInPlace;
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -74,7 +72,7 @@ public class CVAEInPlace {
 
     // === Annealing settings ===
     private AtomicInteger currentEpoch = new AtomicInteger(0);
-    private int klWarmupEpochs = 1000;
+    private int klWarmupEpochs = 100;
     private double maxKLWeight = 0.5;
     private double klSharpness = 10.0;
     private double learningRate = 0.001;
@@ -112,29 +110,29 @@ public class CVAEInPlace {
     
         int encInputDim = inputDim + conditionDim;    // Encoder input: [x | c]
         int decInputDim = latentDim + conditionDim;   // Decoder input: [z | c]
-
+        Random rand = threadLocalRandom.get();
         // === Encoder ===
-        W_enc1 = initMatrix(encInputDim, hiddenDim, true);  // He init for ReLU
+        W_enc1 = initMatrix(encInputDim, hiddenDim, true, rand);  // He init for ReLU
         b_enc1 = initVector(hiddenDim);
 
-        W_enc2 = initMatrix(hiddenDim, hiddenDim, true);    // He init
+        W_enc2 = initMatrix(hiddenDim, hiddenDim, true, rand);    // He init
         b_enc2 = initVector(hiddenDim);
 
-        W_mu = initMatrix(hiddenDim, latentDim, false);     // Xavier init
+        W_mu = initMatrix(hiddenDim, latentDim, false, rand);     // Xavier init
         b_mu = initVector(latentDim);
 
-        W_logvar = initMatrix(hiddenDim, latentDim, false); // Xavier init
+        W_logvar = initMatrix(hiddenDim, latentDim, false, rand); // Xavier init
         b_logvar = initVector(latentDim);
 
         // === Decoder ===
-        W_dec1 = initMatrix(decInputDim, hiddenDim, true);  // He init
+        W_dec1 = initMatrix(decInputDim, hiddenDim, true, rand);  // He init
         b_dec1 = initVector(hiddenDim);
 
-        W_dec2 = initMatrix(hiddenDim, hiddenDim, true);    // He init
+        W_dec2 = initMatrix(hiddenDim, hiddenDim, true, rand);    // He init
         b_dec2 = initVector(hiddenDim);
 
         //Row Major way
-        W_decOut = initMatrix(hiddenDim, inputDim, false);  // Xavier init
+        W_decOut = initMatrix(hiddenDim, inputDim, false, rand);  // Xavier init
         b_decOut = initVector(inputDim);
     }
 

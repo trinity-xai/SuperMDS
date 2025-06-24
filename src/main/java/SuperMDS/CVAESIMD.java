@@ -96,8 +96,7 @@ public class CVAESIMD {
     private final ThreadLocal<BufferSet> threadBuffers;
     private final ThreadLocal<RandomBuffer> threadRngBuffer;
     ThreadLocal<Random> threadLocalRandom;    
-    private Random rand;
-
+    long seed = 42L;
     private int debugEpochCount = 10000;
     private boolean debug = false;
 
@@ -116,47 +115,46 @@ public class CVAESIMD {
          this.conditionDim = conditionDim;
          this.latentDim = latentDim;
          this.hiddenDim = hiddenDim;
-         this.rand = new Random();
 
          threadBuffers = ThreadLocal.withInitial(() ->
              new BufferSet(inputDim, conditionDim, latentDim, hiddenDim));
          threadRngBuffer = ThreadLocal.withInitial(() -> new RandomBuffer(4096));
         threadLocalRandom = ThreadLocal.withInitial(() 
-            -> new Random(System.nanoTime()));
-        
+            -> new Random(seed));
+        Random rand = threadLocalRandom.get();
          int encInputDim = inputDim + conditionDim;    // Encoder input: [x | c]
          int decInputDim = latentDim + conditionDim;   // Decoder input: [z | c]
 
          // === Encoder ===
-         W_enc1 = initMatrix(encInputDim, hiddenDim, true);  // He init for ReLU
+         W_enc1 = initMatrix(encInputDim, hiddenDim, true, rand);  // He init for ReLU
          W_enc1_T = transposeMatrix(W_enc1);
          b_enc1 = initVector(hiddenDim);
 
-         W_enc2 = initMatrix(hiddenDim, hiddenDim, true);    // He init
+         W_enc2 = initMatrix(hiddenDim, hiddenDim, true, rand);    // He init
          W_enc2_T = transposeMatrix(W_enc2);
          b_enc2 = initVector(hiddenDim);
 
-         W_mu = initMatrix(hiddenDim, latentDim, false);     // Xavier init
+         W_mu = initMatrix(hiddenDim, latentDim, false, rand);     // Xavier init
          W_mu_T = transposeMatrix(W_mu);
          b_mu = initVector(latentDim);
 
-         W_logvar = initMatrix(hiddenDim, latentDim, false); // Xavier init
+         W_logvar = initMatrix(hiddenDim, latentDim, false, rand); // Xavier init
          W_logvar_T = transposeMatrix(W_logvar);
          b_logvar = initVector(latentDim);
 
          // === Decoder ===
-         W_dec1 = initMatrix(decInputDim, hiddenDim, true);  // He init
+         W_dec1 = initMatrix(decInputDim, hiddenDim, true, rand);  // He init
          W_dec1_T = transposeMatrix(W_dec1);
          b_dec1 = initVector(hiddenDim);
 
-         W_dec2 = initMatrix(hiddenDim, hiddenDim, true);    // He init
+         W_dec2 = initMatrix(hiddenDim, hiddenDim, true, rand);    // He init
          W_dec2_T = transposeMatrix(W_dec2);
          b_dec2 = initVector(hiddenDim);
 
          //Row Major way
         //W_decOut = initMatrix(hiddenDim, inputDim, false);  // Xavier init
         //Column Major Way (needed for SIMD)
-        W_decOut = initMatrix(inputDim, hiddenDim, false); // ✅
+        W_decOut = initMatrix(inputDim, hiddenDim, false, rand); // ✅
         W_decOut_T = transposeMatrix(W_decOut);
          b_decOut = initVector(inputDim);
      }
@@ -172,7 +170,7 @@ public class CVAESIMD {
     public double[] encode(double[] x, double[] c) {
         // Step 1: Concatenate input and condition vectors
         double[] xc = concat(x, c); // [inputDim + conditionDim]
-
+        Random rand = threadLocalRandom.get();
         // Step 2: Hidden layer 1
         double[] h1 = relu(add(dot(xc, W_enc1), b_enc1)); // [hiddenDim]
         if (useDropout) h1 = applyDropout(h1, dropoutRate, rand);
@@ -196,7 +194,7 @@ public class CVAESIMD {
     public double[] decode(double[] z, double[] c) {
         // Step 1: Concatenate latent vector and condition vector
         double[] zc = concat(z, c); // [latentDim + conditionDim]
-
+        Random rand = threadLocalRandom.get();
         // Step 2: Hidden layer 1
         double[] h1 = relu(add(dot(zc, W_dec1), b_dec1)); // [hiddenDim]
         if (useDropout && isIsTraining()) h1 = applyDropout(h1, dropoutRate, rand);
@@ -248,7 +246,7 @@ public class CVAESIMD {
             safeLogvar[i] = Math.max(Math.min(logvar[i], 10.0), -10.0);
         }
 
-        double[] z = sampleLatent(mu, safeLogvar);
+        double[] z = sampleLatent(mu, safeLogvar, threadLocalRandom.get());
         for (int i = 0; i < z.length; i++) {
             if (Math.abs(z[i]) > 10.0) {
                 z[i] = Math.signum(z[i]) * 10.0;
@@ -365,7 +363,7 @@ public class CVAESIMD {
     public double trainInPlace(double[] x, double[] c) {
         BufferSet buf = threadBuffers.get();
         buf.reset();
-
+        Random rand = threadLocalRandom.get();
         // ========== Forward Pass ==========
         concatInPlace(x, c, buf.xc);  // buf.xc = x ⊕ c
         dotInPlace(buf.xc, W_enc1, buf.h1);           // h1 = relu(W1·xc + b1)
@@ -737,7 +735,7 @@ public class CVAESIMD {
         if (condition.length != conditionDim) {
             throw new IllegalArgumentException("Condition vector must have dimension " + conditionDim);
         }
-
+        Random rand = threadLocalRandom.get();
         // Use a standard normal latent vector (z ~ N(0, I))
         double[] z = new double[latentDim];
         for (int i = 0; i < latentDim; i++) {
