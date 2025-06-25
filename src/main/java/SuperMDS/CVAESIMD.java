@@ -8,16 +8,13 @@ import static SuperMDS.CVAEHelper.clipGradient;
 import static SuperMDS.CVAEHelper.concat;
 import static SuperMDS.CVAEHelper.concatInPlace;
 import static SuperMDS.CVAEHelper.dot;
-import static SuperMDS.CVAEHelper.dotInPlace;
 import static SuperMDS.CVAEHelper.dotT;
-import static SuperMDS.CVAEHelper.dotTInPlace;
 import static SuperMDS.CVAEHelper.getCyclicalKLWeightSigmoid;
 import static SuperMDS.CVAEHelper.getKLWeight;
 import static SuperMDS.CVAEHelper.hasNaNsOrInfs;
 import static SuperMDS.CVAEHelper.initMatrix;
 import static SuperMDS.CVAEHelper.initVector;
 import static SuperMDS.CVAEHelper.mseGradient;
-import static SuperMDS.CVAEHelper.mseGradientInPlace;
 import static SuperMDS.CVAEHelper.mseLoss;
 import static SuperMDS.CVAEHelper.relu;
 import static SuperMDS.CVAEHelper.reluGrad;
@@ -366,20 +363,20 @@ public class CVAESIMD {
         Random rand = threadLocalRandom.get();
         // ========== Forward Pass ==========
         concatInPlace(x, c, buf.xc);  // buf.xc = x ⊕ c
-        dotInPlace(buf.xc, W_enc1, buf.h1);           // h1 = relu(W1·xc + b1)
+        dot(buf.xc, W_enc1, buf.h1);           // h1 = relu(W1·xc + b1)
         addInPlace(buf.h1, b_enc1);
         reluInPlace(buf.h1);
         if (useDropout && isIsTraining()) applyDropoutInPlace(buf.h1, dropoutRate, rand);
 
-        dotInPlace(buf.h1, W_enc2, buf.h2);           // h2 = relu(W2·h1 + b2)
+        dot(buf.h1, W_enc2, buf.h2);           // h2 = relu(W2·h1 + b2)
         addInPlace(buf.h2, b_enc2);
         reluInPlace(buf.h2);
         if (useDropout && isIsTraining()) applyDropoutInPlace(buf.h2, dropoutRate, rand);
 
-        dotInPlace(buf.h2, W_mu, buf.mu);             // mu = W_mu·h2 + b_mu
+        dot(buf.h2, W_mu, buf.mu);             // mu = W_mu·h2 + b_mu
         addInPlace(buf.mu, b_mu);
 
-        dotInPlace(buf.h2, W_logvar, buf.logvar);     // logvar = W_logvar·h2 + b_logvar
+        dot(buf.h2, W_logvar, buf.logvar);     // logvar = W_logvar·h2 + b_logvar
         addInPlace(buf.logvar, b_logvar);
 
         // Clamp logvar and sample z using reparam trick
@@ -393,17 +390,17 @@ public class CVAESIMD {
         }
 
         concatInPlace(buf.z, c, buf.zc);              // zc = z ⊕ c
-        dotInPlace(buf.zc, W_dec1, buf.d1);           // d1 = relu(W1·zc + b1)
+        dot(buf.zc, W_dec1, buf.d1);           // d1 = relu(W1·zc + b1)
         addInPlace(buf.d1, b_dec1);
         reluInPlace(buf.d1);
         if (useDropout && isIsTraining()) applyDropoutInPlace(buf.d1, dropoutRate, rand);
 
-        dotInPlace(buf.d1, W_dec2, buf.d2);           // d2 = relu(W2·d1 + b2)
+        dot(buf.d1, W_dec2, buf.d2);           // d2 = relu(W2·d1 + b2)
         addInPlace(buf.d2, b_dec2);
         reluInPlace(buf.d2);
         if (useDropout && isIsTraining()) applyDropoutInPlace(buf.d2, dropoutRate, rand);
 
-        dotInPlace(buf.d2, W_decOut, buf.xRecon);     // recon = W3·d2 + b3
+        dot(buf.d2, W_decOut, buf.xRecon);     // recon = W3·d2 + b3
         addInPlace(buf.xRecon, b_decOut);
 
         for (int i = 0; i < buf.xRecon.length; i++) {
@@ -440,14 +437,14 @@ public class CVAESIMD {
         }
 
         // ========== Backward Pass ==========
-        mseGradientInPlace(buf.xRecon, x, buf.grad_xRecon);
-        dotTInPlace(buf.grad_xRecon, W_decOut, buf.dL_dDec2);
+        mseGradient(buf.xRecon, x, buf.grad_xRecon);
+        dotT(buf.grad_xRecon, W_decOut, buf.dL_dDec2);
         reluGradInPlace(buf.d2, buf.dL_dDec2, buf.dL_dDec2);
 
-        dotTInPlace(buf.dL_dDec2, W_dec2, buf.dL_dDec1);
+        dotT(buf.dL_dDec2, W_dec2, buf.dL_dDec1);
         reluGradInPlace(buf.d1, buf.dL_dDec1, buf.dL_dDec1);
 
-        dotTInPlace(buf.dL_dDec1, W_dec1, buf.dL_dZC);
+        dotT(buf.dL_dDec1, W_dec1, buf.dL_dZC);
         System.arraycopy(buf.dL_dZC, 0, buf.dz, 0, latentDim);
 
         // KL Gradients
@@ -459,12 +456,12 @@ public class CVAESIMD {
             buf.grad_logvar[i] = 0.5 * buf.dz[i] * eps + klWeight * 0.5 * (Math.exp(buf.safeLogvar[i]) - 1);
         }
 
-        dotTInPlace(buf.grad_mu, W_mu, buf.dmu_dh2);
-        dotTInPlace(buf.grad_logvar, W_logvar, buf.dlogvar_dh2);
+        dotT(buf.grad_mu, W_mu, buf.dmu_dh2);
+        dotT(buf.grad_logvar, W_logvar, buf.dlogvar_dh2);
         addInPlace(buf.dmu_dh2, buf.dlogvar_dh2, buf.dL_dh2);
 
         reluGradInPlace(buf.h2, buf.dL_dh2, buf.dL_dh2);
-        dotTInPlace(buf.dL_dh2, W_enc2, buf.dL_dh1);
+        dotT(buf.dL_dh2, W_enc2, buf.dL_dh1);
         reluGradInPlace(buf.h1, buf.dL_dh1, buf.dL_dh1);
 
         // Gradient Clipping

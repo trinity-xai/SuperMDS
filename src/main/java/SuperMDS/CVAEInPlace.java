@@ -10,14 +10,13 @@ import static SuperMDS.CVAEHelper.clipGradientInPlace;
 import static SuperMDS.CVAEHelper.concat;
 import static SuperMDS.CVAEHelper.concatInPlace;
 import static SuperMDS.CVAEHelper.dot;
-import static SuperMDS.CVAEHelper.dotInPlace;
-import static SuperMDS.CVAEHelper.dotTInPlace;
+import static SuperMDS.CVAEHelper.dotT;
 import static SuperMDS.CVAEHelper.getCyclicalKLWeightSigmoid;
 import static SuperMDS.CVAEHelper.getKLWeight;
 import static SuperMDS.CVAEHelper.hasNaNsOrInfs;
 import static SuperMDS.CVAEHelper.initMatrix;
 import static SuperMDS.CVAEHelper.initVector;
-import static SuperMDS.CVAEHelper.mseGradientInPlace;
+import static SuperMDS.CVAEHelper.mseGradient;
 import static SuperMDS.CVAEHelper.mseLoss;
 import static SuperMDS.CVAEHelper.relu;
 import static SuperMDS.CVAEHelper.reluGradInPlace;
@@ -27,7 +26,6 @@ import static SuperMDS.CVAEHelper.updateMatrix;
 import static SuperMDS.CVAEHelper.updateVector;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.DoubleAdder;
 import java.util.stream.IntStream;
 
 /**
@@ -220,18 +218,18 @@ public double forwardBackward(
     // === Forward pass ===
     concatInPlace(x, c, buf.xc); // buf.xc = [x | c]
 
-    dotInPlace(buf.xc, W_enc1, buf.h1);
+    dot(buf.xc, W_enc1, buf.h1);
     addInPlace(buf.h1, b_enc1);
     reluInPlace(buf.h1);
 
-    dotInPlace(buf.h1, W_enc2, buf.h2);
+    dot(buf.h1, W_enc2, buf.h2);
     addInPlace(buf.h2, b_enc2);
     reluInPlace(buf.h2);
 
-    dotInPlace(buf.h2, W_mu, buf.mu);
+    dot(buf.h2, W_mu, buf.mu);
     addInPlace(buf.mu, b_mu);
 
-    dotInPlace(buf.h2, W_logvar, buf.logvar);
+    dot(buf.h2, W_logvar, buf.logvar);
     addInPlace(buf.logvar, b_logvar);
 
     for (int i = 0; i < latentDim; i++) {
@@ -245,15 +243,15 @@ public double forwardBackward(
 
     concatInPlace(buf.z, c, buf.zc);
 
-    dotInPlace(buf.zc, W_dec1, buf.d1);
+    dot(buf.zc, W_dec1, buf.d1);
     addInPlace(buf.d1, b_dec1);
     reluInPlace(buf.d1);
 
-    dotInPlace(buf.d1, W_dec2, buf.d2);
+    dot(buf.d1, W_dec2, buf.d2);
     addInPlace(buf.d2, b_dec2);
     reluInPlace(buf.d2);
 
-    dotInPlace(buf.d2, W_decOut, buf.xRecon);
+    dot(buf.d2, W_decOut, buf.xRecon);
     addInPlace(buf.xRecon, b_decOut);
 
     for (int i = 0; i < buf.xRecon.length; i++) {
@@ -279,14 +277,14 @@ public double forwardBackward(
     }
 
     // === Backward pass ===
-    mseGradientInPlace(buf.xRecon, x, buf.grad_xRecon);
-    dotTInPlace(buf.grad_xRecon, W_decOut, buf.dL_dDec2);
+    mseGradient(buf.xRecon, x, buf.grad_xRecon);
+    dotT(buf.grad_xRecon, W_decOut, buf.dL_dDec2);
     reluGradInPlace(buf.d2, buf.dL_dDec2, buf.dL_dDec2);
 
-    dotTInPlace(buf.dL_dDec2, W_dec2, buf.dL_dDec1);
+    dotT(buf.dL_dDec2, W_dec2, buf.dL_dDec1);
     reluGradInPlace(buf.d1, buf.dL_dDec1, buf.dL_dDec1);
 
-    dotTInPlace(buf.dL_dDec1, W_dec1, buf.dL_dZC);
+    dotT(buf.dL_dDec1, W_dec1, buf.dL_dZC);
     System.arraycopy(buf.dL_dZC, 0, buf.dz, 0, latentDim);
 
     for (int i = 0; i < latentDim; i++) {
@@ -296,12 +294,12 @@ public double forwardBackward(
         buf.grad_logvar[i] = 0.5 * buf.dz[i] * eps + klWeight * 0.5 * (Math.exp(buf.safeLogvar[i]) - 1);
     }
 
-    dotTInPlace(buf.grad_mu, W_mu, buf.dmu_dh2);
-    dotTInPlace(buf.grad_logvar, W_logvar, buf.dlogvar_dh2);
+    dotT(buf.grad_mu, W_mu, buf.dmu_dh2);
+    dotT(buf.grad_logvar, W_logvar, buf.dlogvar_dh2);
     addInPlace(buf.dmu_dh2, buf.dlogvar_dh2, buf.dL_dh2);
 
     reluGradInPlace(buf.h2, buf.dL_dh2, buf.dL_dh2);
-    dotTInPlace(buf.dL_dh2, W_enc2, buf.dL_dh1);
+    dotT(buf.dL_dh2, W_enc2, buf.dL_dh1);
     reluGradInPlace(buf.h1, buf.dL_dh1, buf.dL_dh1);
 
     // === Clip gradients ===
@@ -370,18 +368,18 @@ private void applyGradients(GradientBuffer grad, double lr) {
 
         // ===== Forward Pass =====
         concatInPlace(x, c, buf.xc);
-        dotInPlace(buf.xc, W_enc1, buf.h1);
+        dot(buf.xc, W_enc1, buf.h1);
         addInPlace(buf.h1, b_enc1);
         reluInPlace(buf.h1);
 
-        dotInPlace(buf.h1, W_enc2, buf.h2);
+        dot(buf.h1, W_enc2, buf.h2);
         addInPlace(buf.h2, b_enc2);
         reluInPlace(buf.h2);
 
-        dotInPlace(buf.h2, W_mu, buf.mu);
+        dot(buf.h2, W_mu, buf.mu);
         addInPlace(buf.mu, b_mu);
 
-        dotInPlace(buf.h2, W_logvar, buf.logvar);
+        dot(buf.h2, W_logvar, buf.logvar);
         addInPlace(buf.logvar, b_logvar);
 
         for (int i = 0; i < latentDim; i++) {
@@ -394,15 +392,15 @@ private void applyGradients(GradientBuffer grad, double lr) {
         }
 
         concatInPlace(buf.z, c, buf.zc);
-        dotInPlace(buf.zc, W_dec1, buf.d1);
+        dot(buf.zc, W_dec1, buf.d1);
         addInPlace(buf.d1, b_dec1);
         reluInPlace(buf.d1);
 
-        dotInPlace(buf.d1, W_dec2, buf.d2);
+        dot(buf.d1, W_dec2, buf.d2);
         addInPlace(buf.d2, b_dec2);
         reluInPlace(buf.d2);
 
-        dotInPlace(buf.d2, W_decOut, buf.xRecon);
+        dot(buf.d2, W_decOut, buf.xRecon);
         addInPlace(buf.xRecon, b_decOut);
 
         for (int i = 0; i < buf.xRecon.length; i++) {
@@ -429,15 +427,15 @@ private void applyGradients(GradientBuffer grad, double lr) {
         }
 
         // ===== Backward Pass =====
-        mseGradientInPlace(buf.xRecon, x, buf.grad_xRecon);
+        mseGradient(buf.xRecon, x, buf.grad_xRecon);
 
-        dotTInPlace(buf.grad_xRecon, W_decOut, buf.dL_dDec2);
+        dotT(buf.grad_xRecon, W_decOut, buf.dL_dDec2);
         reluGradInPlace(buf.d2, buf.dL_dDec2, buf.dL_dDec2);
 
-        dotTInPlace(buf.dL_dDec2, W_dec2, buf.dL_dDec1);
+        dotT(buf.dL_dDec2, W_dec2, buf.dL_dDec1);
         reluGradInPlace(buf.d1, buf.dL_dDec1, buf.dL_dDec1);
 
-        dotTInPlace(buf.dL_dDec1, W_dec1, buf.dL_dZC);
+        dotT(buf.dL_dDec1, W_dec1, buf.dL_dZC);
         System.arraycopy(buf.dL_dZC, 0, buf.dz, 0, latentDim);
 
         for (int i = 0; i < latentDim; i++) {
@@ -447,12 +445,12 @@ private void applyGradients(GradientBuffer grad, double lr) {
             buf.grad_logvar[i] = 0.5 * buf.dz[i] * eps + klWeight * 0.5 * (Math.exp(buf.safeLogvar[i]) - 1);
         }
 
-        dotTInPlace(buf.grad_mu, W_mu, buf.dmu_dh2);
-        dotTInPlace(buf.grad_logvar, W_logvar, buf.dlogvar_dh2);
+        dotT(buf.grad_mu, W_mu, buf.dmu_dh2);
+        dotT(buf.grad_logvar, W_logvar, buf.dlogvar_dh2);
         addInPlace(buf.dmu_dh2, buf.dlogvar_dh2, buf.dL_dh2);
 
         reluGradInPlace(buf.h2, buf.dL_dh2, buf.dL_dh2);
-        dotTInPlace(buf.dL_dh2, W_enc2, buf.dL_dh1);
+        dotT(buf.dL_dh2, W_enc2, buf.dL_dh1);
         reluGradInPlace(buf.h1, buf.dL_dh1, buf.dL_dh1);
 
         // Clip grads

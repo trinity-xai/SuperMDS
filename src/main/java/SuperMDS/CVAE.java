@@ -1,6 +1,7 @@
 package SuperMDS;
 
 import static SuperMDS.CVAEHelper.add;
+import static SuperMDS.CVAEHelper.addInPlace;
 import static SuperMDS.CVAEHelper.applyDropout;
 import static SuperMDS.CVAEHelper.clipGradient;
 import static SuperMDS.CVAEHelper.concat;
@@ -14,9 +15,9 @@ import static SuperMDS.CVAEHelper.initVector;
 import static SuperMDS.CVAEHelper.mseGradient;
 import static SuperMDS.CVAEHelper.mseLoss;
 import static SuperMDS.CVAEHelper.relu;
-import static SuperMDS.CVAEHelper.reluGrad;
-import static SuperMDS.CVAEHelper.sampleLatent;
-import static SuperMDS.CVAEHelper.slice;
+import static SuperMDS.CVAEHelper.reluGradInPlace;
+import static SuperMDS.CVAEHelper.reluInPlace;
+import static SuperMDS.CVAEHelper.sampleLatentInPlace;
 import static SuperMDS.CVAEHelper.updateMatrix;
 import static SuperMDS.CVAEHelper.updateVector;
 import java.util.Arrays;
@@ -95,29 +96,54 @@ public class CVAE {
          int encInputDim = inputDim + conditionDim;    // Encoder input: [x | c]
          int decInputDim = latentDim + conditionDim;   // Decoder input: [z | c]
          Random rand = threadLocalRandom.get();
-         // === Encoder ===
-         W_enc1 = initMatrix(encInputDim, hiddenDim, true, rand);  // He init for ReLU
-         b_enc1 = initVector(hiddenDim);
+//         // === Encoder ===
+//         W_enc1 = initMatrix(encInputDim, hiddenDim, true, rand);  // He init for ReLU
+//         b_enc1 = initVector(hiddenDim);
+//
+//         W_enc2 = initMatrix(hiddenDim, hiddenDim, true, rand);    // He init
+//         b_enc2 = initVector(hiddenDim);
+//
+//         W_mu = initMatrix(hiddenDim, latentDim, false, rand);     // Xavier init
+//         b_mu = initVector(latentDim);
+//
+//         W_logvar = initMatrix(hiddenDim, latentDim, false, rand); // Xavier init
+//         b_logvar = initVector(latentDim);
+//
+//         // === Decoder ===
+//         W_dec1 = initMatrix(decInputDim, hiddenDim, true, rand);  // He init
+//         b_dec1 = initVector(hiddenDim);
+//
+//         W_dec2 = initMatrix(hiddenDim, hiddenDim, true, rand);    // He init
+//         b_dec2 = initVector(hiddenDim);
+//
+//         //Row Major way
+//         W_decOut = initMatrix(hiddenDim, inputDim, false, rand);  // Xavier init
+//         b_decOut = initVector(inputDim);
+//         
 
-         W_enc2 = initMatrix(hiddenDim, hiddenDim, true, rand);    // He init
-         b_enc2 = initVector(hiddenDim);
+// === Encoder ===
+W_enc1    = initMatrix(hiddenDim, encInputDim, true, rand);   // h1 = W_enc1 * [x | c]
+b_enc1    = initVector(hiddenDim);
 
-         W_mu = initMatrix(hiddenDim, latentDim, false, rand);     // Xavier init
-         b_mu = initVector(latentDim);
+W_enc2    = initMatrix(hiddenDim, hiddenDim, true, rand);     // h2 = W_enc2 * h1
+b_enc2    = initVector(hiddenDim);
 
-         W_logvar = initMatrix(hiddenDim, latentDim, false, rand); // Xavier init
-         b_logvar = initVector(latentDim);
+W_mu      = initMatrix(latentDim, hiddenDim, false, rand);    // mu = W_mu * h2
+b_mu      = initVector(latentDim);
 
-         // === Decoder ===
-         W_dec1 = initMatrix(decInputDim, hiddenDim, true, rand);  // He init
-         b_dec1 = initVector(hiddenDim);
+W_logvar  = initMatrix(latentDim, hiddenDim, false, rand);    // logvar = W_logvar * h2
+b_logvar  = initVector(latentDim);
 
-         W_dec2 = initMatrix(hiddenDim, hiddenDim, true, rand);    // He init
-         b_dec2 = initVector(hiddenDim);
+// === Decoder ===
+W_dec1    = initMatrix(hiddenDim, decInputDim, true, rand);   // d1 = W_dec1 * [z | c]
+b_dec1    = initVector(hiddenDim);
 
-         //Row Major way
-         W_decOut = initMatrix(hiddenDim, inputDim, false, rand);  // Xavier init
-         b_decOut = initVector(inputDim);
+W_dec2    = initMatrix(hiddenDim, hiddenDim, true, rand);     // d2 = W_dec2 * d1
+b_dec2    = initVector(hiddenDim);
+
+W_decOut  = initMatrix(inputDim, hiddenDim, false, rand);     // xRecon = W_decOut * d2
+b_decOut  = initVector(inputDim);
+
      }
 
     public double trainBatch(double[][] xBatch, double[][] cBatch) {
@@ -141,121 +167,156 @@ public class CVAE {
             throw new IllegalArgumentException("Input or condition vector contains NaNs or Infs.");
         }
 
-        double[] xc = concat(x, c);
+        CVAEBufferSet buf = threadLocalBuffer.get();  // Reuse buffers
+        Random rand = threadLocalRandom.get();
 
         // ===== Forward Pass =====
-        // Encoder
-        double[] h1 = relu(add(dot(xc, W_enc1), b_enc1));
-        double[] h2 = relu(add(dot(h1, W_enc2), b_enc2));
+        // Encoder input = concat(x, c)
+        System.arraycopy(x, 0, buf.xc, 0, inputDim);
+        System.arraycopy(c, 0, buf.xc, inputDim, conditionDim);
 
-        double[] mu = add(dot(h2, W_mu), b_mu);
-        double[] logvar = add(dot(h2, W_logvar), b_logvar);
+        // Encoder layer 1: h1 = ReLU(W1 * xc + b1)
+        dot(buf.xc, W_enc1, buf.h1);
+        addInPlace(buf.h1, b_enc1);
+        reluInPlace(buf.h1);
 
-        double[] safeLogvar = new double[latentDim];
+        // Encoder layer 2: h2 = ReLU(W2 * h1 + b2)
+        dot(buf.h1, W_enc2, buf.h2);
+        addInPlace(buf.h2, b_enc2);
+        reluInPlace(buf.h2);
+
+        // μ and log(σ²) outputs
+        dot(buf.h2, W_mu, buf.mu);
+        addInPlace(buf.mu, b_mu);
+
+        dot(buf.h2, W_logvar, buf.logvar);
+        addInPlace(buf.logvar, b_logvar);
+
+        // Clip logvar for stability
         for (int i = 0; i < latentDim; i++) {
-            safeLogvar[i] = Math.max(Math.min(logvar[i], 10.0), -10.0);
+            buf.safeLogvar[i] = Math.max(Math.min(buf.logvar[i], 10.0), -10.0);
         }
 
-        double[] z = sampleLatent(mu, safeLogvar, threadLocalRandom.get());
-        for (int i = 0; i < z.length; i++) {
-            if (Math.abs(z[i]) > 10.0) {
-                z[i] = Math.signum(z[i]) * 10.0;
+        // Sample z ~ N(mu, sigma^2)
+        sampleLatentInPlace(buf.mu, buf.safeLogvar, buf.z, rand);
+
+        // Clamp extreme values
+        for (int i = 0; i < latentDim; i++) {
+            if (Math.abs(buf.z[i]) > 10.0) {
+                buf.z[i] = Math.signum(buf.z[i]) * 10.0;
             }
         }
 
-        double[] zc = concat(z, c);
+        // Decoder input = concat(z, c)
+        System.arraycopy(buf.z, 0, buf.zc, 0, latentDim);
+        System.arraycopy(c, 0, buf.zc, latentDim, conditionDim);
 
-        // Decoder
-        double[] d1 = relu(add(dot(zc, W_dec1), b_dec1));
-        double[] d2 = relu(add(dot(d1, W_dec2), b_dec2));
-        double[] xRecon = add(dot(d2, W_decOut), b_decOut);  // Linear output
+        // Decoder layer 1: d1 = ReLU(W1 * zc + b1)
+        dot(buf.zc, W_dec1, buf.d1);
+        addInPlace(buf.d1, b_dec1);
+        reluInPlace(buf.d1);
 
-        for (int i = 0; i < xRecon.length; i++) {
-            xRecon[i] = Math.max(Math.min(xRecon[i], 1e6), -1e6);
+        // Decoder layer 2: d2 = ReLU(W2 * d1 + b2)
+        dot(buf.d1, W_dec2, buf.d2);
+        addInPlace(buf.d2, b_dec2);
+        reluInPlace(buf.d2);
+
+        // Output layer: xRecon = W_out * d2 + b_out
+        dot(buf.d2, W_decOut, buf.xRecon);
+        addInPlace(buf.xRecon, b_decOut);
+
+        for (int i = 0; i < inputDim; i++) {
+            buf.xRecon[i] = Math.max(Math.min(buf.xRecon[i], 1e6), -1e6);
         }
 
         // ===== Loss =====
-        double reconLoss = mseLoss(x, xRecon);
+        double reconLoss = mseLoss(x, buf.xRecon);
+
         double klLoss = 0.0;
         for (int i = 0; i < latentDim; i++) {
-            double var = Math.exp(safeLogvar[i]);
-            klLoss += -0.5 * (1 + safeLogvar[i] - mu[i] * mu[i] - var);
+            double var = Math.exp(buf.safeLogvar[i]);
+            klLoss += -0.5 * (1 + buf.safeLogvar[i] - buf.mu[i] * buf.mu[i] - var);
         }
 
-        //should we use Sawtooth annealing (cyclical) or a monotonic rampup
         double klWeight = isUseCyclicalAnneal()
-                ? getCyclicalKLWeightSigmoid(currentEpoch.get(), getKlAnnealCycleLength(), maxKLWeight, getKlSharpness())
-                : getKLWeight(currentEpoch.get(), klWarmupEpochs, maxKLWeight, getKlSharpness());
+            ? getCyclicalKLWeightSigmoid(currentEpoch.get(), getKlAnnealCycleLength(), maxKLWeight, getKlSharpness())
+            : getKLWeight(currentEpoch.get(), klWarmupEpochs, maxKLWeight, getKlSharpness());
 
         double loss = reconLoss + klWeight * klLoss;
 
         if (Double.isNaN(loss) || Double.isInfinite(loss)) {
-            if(debug) {
+            if (debug) {
                 System.out.println("x = " + Arrays.toString(x));
                 System.out.println("c = " + Arrays.toString(c));
-                System.out.println("xRecon = " + Arrays.toString(xRecon));
-                System.out.println("mu = " + Arrays.toString(mu));
-                System.out.println("logvar = " + Arrays.toString(logvar));
-                System.out.println("safeLogvar = " + Arrays.toString(safeLogvar));
-                System.out.println("z = " + Arrays.toString(z));
+                System.out.println("xRecon = " + Arrays.toString(buf.xRecon));
+                System.out.println("mu = " + Arrays.toString(buf.mu));
+                System.out.println("logvar = " + Arrays.toString(buf.logvar));
+                System.out.println("safeLogvar = " + Arrays.toString(buf.safeLogvar));
+                System.out.println("z = " + Arrays.toString(buf.z));
             }
             throw new RuntimeException("Training loss became NaN or Infinite — check input data or model stability.");
         }
 
-        // Optional debug output
         if (debug && currentEpoch.get() % getDebugEpochCount() == 0) {
             System.out.printf("Epoch %d — Recon: %.6f, KL: %.6f (weight %.3f), Total: %.6f\n",
-                currentEpoch.get(), reconLoss, klLoss, klWeight, loss);
+                    currentEpoch.get(), reconLoss, klLoss, klWeight, loss);
         }
 
         // ===== Backward Pass =====
-        double[] dL_dxRecon = mseGradient(xRecon, x);
+
+        // Grad from MSE loss
+        mseGradient(buf.xRecon, x, buf.dL_dxRecon);
 
         // Decoder
-        double[] dL_dDecOut = dotT(dL_dxRecon, W_decOut);
-        double[] dL_dDec2 = reluGrad(d2, dL_dDecOut);
-        double[] dL_dDec1 = reluGrad(d1, dotT(dL_dDec2, W_dec2));
-        double[] dL_dZC = dotT(dL_dDec1, W_dec1);
+        dotT(buf.dL_dxRecon, W_decOut, buf.dL_dDecOut);
+        reluGradInPlace(buf.d2, buf.dL_dDecOut, buf.dL_dDec2);
+        dotT(buf.dL_dDec2, W_dec2, buf.dL_dDec1);
+        reluGradInPlace(buf.d1, buf.dL_dDec1, buf.dL_dDec1);
+        dotT(buf.dL_dDec1, W_dec1, buf.dL_dZC);
 
-        double[] dz = slice(dL_dZC, 0, latentDim);
+        // Extract grad wrt z
+        System.arraycopy(buf.dL_dZC, 0, buf.dz, 0, latentDim);
 
-        // ===== KL Divergence Backpropagation (Fixed) =====
-        double[] dL_dmu = new double[latentDim];
-        double[] dL_dlogvar = new double[latentDim];
+        // KL backprop
         for (int i = 0; i < latentDim; i++) {
-            double sigma = Math.exp(0.5 * safeLogvar[i]);
-            double eps = (z[i] - mu[i]) / sigma;
+            double sigma = Math.exp(0.5 * buf.safeLogvar[i]);
+            double eps = (buf.z[i] - buf.mu[i]) / sigma;
 
-            // Backprop from decoder + KL term
-            dL_dmu[i] = dz[i] + klWeight * mu[i];  // ∂KL/∂μ = μ
-            dL_dlogvar[i] = 0.5 * dz[i] * eps + klWeight * 0.5 * (Math.exp(safeLogvar[i]) - 1);
+            buf.dL_dmu[i] = buf.dz[i] + klWeight * buf.mu[i];
+            buf.dL_dlogvar[i] = 0.5 * buf.dz[i] * eps + klWeight * 0.5 * (Math.exp(buf.safeLogvar[i]) - 1);
         }
 
-        // Encoder
-        double[] dmu_dh2 = dotT(dL_dmu, W_mu);
-        double[] dlogvar_dh2 = dotT(dL_dlogvar, W_logvar);
-        double[] dL_dh2 = reluGrad(h2, add(dmu_dh2, dlogvar_dh2));
-        double[] dL_dh1 = reluGrad(h1, dotT(dL_dh2, W_enc2));
+        // Encoder backprop
+        dotT(buf.dL_dmu, W_mu, buf.dmu_dh2);
+        dotT(buf.dL_dlogvar, W_logvar, buf.dlogvar_dh2);
+        for (int i = 0; i < hiddenDim; i++) {
+            buf.dL_dh2[i] = buf.dmu_dh2[i] + buf.dlogvar_dh2[i];
+        }
+        reluGradInPlace(buf.h2, buf.dL_dh2, buf.dL_dh2);
 
-        // ===== Gradient Clipping =====
-        clipGradient(dL_dxRecon, 5.0);
-        clipGradient(dL_dmu, 5.0);
-        clipGradient(dL_dlogvar, 5.0);
-        clipGradient(dL_dh2, 5.0);
-        clipGradient(dL_dh1, 5.0);
+        dotT(buf.dL_dh2, W_enc2, buf.dL_dh1);
+        reluGradInPlace(buf.h1, buf.dL_dh1, buf.dL_dh1);
 
-        // ===== Parameter Updates =====
+        // Clip gradients
+        clipGradient(buf.dL_dxRecon, 5.0);
+        clipGradient(buf.dL_dmu, 5.0);
+        clipGradient(buf.dL_dlogvar, 5.0);
+        clipGradient(buf.dL_dh2, 5.0);
+        clipGradient(buf.dL_dh1, 5.0);
+
+        // Update parameters
         updateParametersDeep(
-                xc, h1, h2,
-                dL_dh1, dL_dh2,
-                dL_dmu, dL_dlogvar,
-                z, c, d1, d2,
-                dL_dDec1, dL_dDec2, dL_dxRecon
+                buf.xc, buf.h1, buf.h2,
+                buf.dL_dh1, buf.dL_dh2,
+                buf.dL_dmu, buf.dL_dlogvar,
+                buf.z, c, buf.d1, buf.d2,
+                buf.dL_dDec1, buf.dL_dDec2, buf.dL_dxRecon
         );
 
         currentEpoch.incrementAndGet();
         return loss;
     }
+
   
     /**
      * Perform gradient descent updates for all weights and biases in the
