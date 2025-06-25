@@ -42,26 +42,20 @@ import java.util.stream.IntStream;
  * @author Sean Phillips
  */
 public class CVAE {
-
     private int inputDim;      // Dimensionality of input vector
     private int conditionDim;  // Dimensionality of condition vector
     private int latentDim;     // Dimensionality of latent space
     private int hiddenDim;     // Number of hidden units in each hidden layer
-
     // === Encoder weights ===
     private double[][] W_enc1, W_enc2; // Weights for encoder layers
     private double[] b_enc1, b_enc2;   // Biases for encoder layers
-
     private double[][] W_mu;       // Weights: hiddenDim x latentDim
     private double[] b_mu;         // Biases: latentDim
     private double[][] W_logvar;   // Weights: hiddenDim x latentDim
     private double[] b_logvar;     // Biases: latentDim
-
-    // === Decoder weights ===
     // Decoder weight matrices for 2 hidden layers + output layer
     private double[][] W_dec1, W_dec2, W_decOut; // Weights for decoder layers
     private double[] b_dec1, b_dec2, b_decOut; // Biases for decoder layers
-    
     // === Annealing settings ===
     private AtomicInteger currentEpoch = new AtomicInteger(0);
     private int klWarmupEpochs = 100;
@@ -70,14 +64,14 @@ public class CVAE {
     private double learningRate = 0.0001;
     private boolean useCyclicalAnneal = false;
     private int klAnnealCycleLength = 100;
-
     private double dropoutRate = 0.01; // 20% dropout is typical
     private boolean useDropout = true;    
     private boolean isTraining = false;
-    
     private long seed = 42L;
+    ThreadLocal<Random> threadLocalRandom;  
+    private final ThreadLocal<CVAEBufferSet> threadLocalBuffer =
+        ThreadLocal.withInitial(() -> new CVAEBufferSet(inputDim, conditionDim, latentDim, hiddenDim));
     
-    ThreadLocal<Random> threadLocalRandom;    
     private int debugEpochCount = 10000;
     private boolean debug = false;
 
@@ -98,7 +92,6 @@ public class CVAE {
          this.hiddenDim = hiddenDim;
         threadLocalRandom = ThreadLocal.withInitial(() 
             -> new Random(seed));
-
          int encInputDim = inputDim + conditionDim;    // Encoder input: [x | c]
          int decInputDim = latentDim + conditionDim;   // Decoder input: [z | c]
          Random rand = threadLocalRandom.get();
@@ -132,7 +125,6 @@ public class CVAE {
         double totalLoss = IntStream.range(0, batchSize).parallel()
             .mapToDouble(i -> train(xBatch[i], cBatch[i]))
             .sum();
-
         return totalLoss / batchSize;
     }
     /**
