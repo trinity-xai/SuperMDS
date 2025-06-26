@@ -21,7 +21,7 @@ public class CVAEInverseTest {
         int embeddingDim = 3;    // From SMACOF MDS
         int latentDim = 16;
         int hiddenDim = 64;
-        int batchSize = 32;
+        int batchSize = 128;
         int epochs = 2000;
         
         // Generate dummy original data (e.g., MDS input)

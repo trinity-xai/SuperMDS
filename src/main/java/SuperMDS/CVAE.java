@@ -43,6 +43,7 @@ import java.util.stream.IntStream;
  * @author Sean Phillips
  */
 public class CVAE {
+
     private int inputDim;      // Dimensionality of input vector
     private int conditionDim;  // Dimensionality of condition vector
     private int latentDim;     // Dimensionality of latent space
@@ -66,13 +67,13 @@ public class CVAE {
     private boolean useCyclicalAnneal = false;
     private int klAnnealCycleLength = 100;
     private double dropoutRate = 0.01; // 20% dropout is typical
-    private boolean useDropout = true;    
+    private boolean useDropout = true;
     private boolean isTraining = false;
     private long seed = 42L;
-    ThreadLocal<Random> threadLocalRandom;  
-    private final ThreadLocal<CVAEBufferSet> threadLocalBuffer =
-        ThreadLocal.withInitial(() -> new CVAEBufferSet(inputDim, conditionDim, latentDim, hiddenDim));
-    
+    ThreadLocal<Random> threadLocalRandom;
+    private final ThreadLocal<CVAEBufferSet> threadLocalBuffer
+            = ThreadLocal.withInitial(() -> new CVAEBufferSet(inputDim, conditionDim, latentDim, hiddenDim));
+
     private int debugEpochCount = 10000;
     private boolean debug = false;
 
@@ -88,71 +89,47 @@ public class CVAE {
      */
     public CVAE(int inputDim, int conditionDim, int latentDim, int hiddenDim) {
         this.inputDim = inputDim;
-         this.conditionDim = conditionDim;
-         this.latentDim = latentDim;
-         this.hiddenDim = hiddenDim;
-        threadLocalRandom = ThreadLocal.withInitial(() 
-            -> new Random(seed));
-         int encInputDim = inputDim + conditionDim;    // Encoder input: [x | c]
-         int decInputDim = latentDim + conditionDim;   // Decoder input: [z | c]
-         Random rand = threadLocalRandom.get();
-//         // === Encoder ===
-//         W_enc1 = initMatrix(encInputDim, hiddenDim, true, rand);  // He init for ReLU
-//         b_enc1 = initVector(hiddenDim);
-//
-//         W_enc2 = initMatrix(hiddenDim, hiddenDim, true, rand);    // He init
-//         b_enc2 = initVector(hiddenDim);
-//
-//         W_mu = initMatrix(hiddenDim, latentDim, false, rand);     // Xavier init
-//         b_mu = initVector(latentDim);
-//
-//         W_logvar = initMatrix(hiddenDim, latentDim, false, rand); // Xavier init
-//         b_logvar = initVector(latentDim);
-//
-//         // === Decoder ===
-//         W_dec1 = initMatrix(decInputDim, hiddenDim, true, rand);  // He init
-//         b_dec1 = initVector(hiddenDim);
-//
-//         W_dec2 = initMatrix(hiddenDim, hiddenDim, true, rand);    // He init
-//         b_dec2 = initVector(hiddenDim);
-//
-//         //Row Major way
-//         W_decOut = initMatrix(hiddenDim, inputDim, false, rand);  // Xavier init
-//         b_decOut = initVector(inputDim);
-//         
+        this.conditionDim = conditionDim;
+        this.latentDim = latentDim;
+        this.hiddenDim = hiddenDim;
+        threadLocalRandom = ThreadLocal.withInitial(()
+                -> new Random(seed));
+        int encInputDim = inputDim + conditionDim;    // Encoder input: [x | c]
+        int decInputDim = latentDim + conditionDim;   // Decoder input: [z | c]
+        Random rand = threadLocalRandom.get();
 
-// === Encoder ===
-W_enc1    = initMatrix(hiddenDim, encInputDim, true, rand);   // h1 = W_enc1 * [x | c]
-b_enc1    = initVector(hiddenDim);
+        // === Encoder ===
+        W_enc1 = initMatrix(hiddenDim, encInputDim, true, rand);   // h1 = W_enc1 * [x | c]
+        b_enc1 = initVector(hiddenDim);
 
-W_enc2    = initMatrix(hiddenDim, hiddenDim, true, rand);     // h2 = W_enc2 * h1
-b_enc2    = initVector(hiddenDim);
+        W_enc2 = initMatrix(hiddenDim, hiddenDim, true, rand);     // h2 = W_enc2 * h1
+        b_enc2 = initVector(hiddenDim);
 
-W_mu      = initMatrix(latentDim, hiddenDim, false, rand);    // mu = W_mu * h2
-b_mu      = initVector(latentDim);
+        W_mu = initMatrix(latentDim, hiddenDim, false, rand);    // mu = W_mu * h2
+        b_mu = initVector(latentDim);
 
-W_logvar  = initMatrix(latentDim, hiddenDim, false, rand);    // logvar = W_logvar * h2
-b_logvar  = initVector(latentDim);
+        W_logvar = initMatrix(latentDim, hiddenDim, false, rand);    // logvar = W_logvar * h2
+        b_logvar = initVector(latentDim);
 
-// === Decoder ===
-W_dec1    = initMatrix(hiddenDim, decInputDim, true, rand);   // d1 = W_dec1 * [z | c]
-b_dec1    = initVector(hiddenDim);
+        // === Decoder ===
+        W_dec1 = initMatrix(hiddenDim, decInputDim, true, rand);   // d1 = W_dec1 * [z | c]
+        b_dec1 = initVector(hiddenDim);
 
-W_dec2    = initMatrix(hiddenDim, hiddenDim, true, rand);     // d2 = W_dec2 * d1
-b_dec2    = initVector(hiddenDim);
+        W_dec2 = initMatrix(hiddenDim, hiddenDim, true, rand);     // d2 = W_dec2 * d1
+        b_dec2 = initVector(hiddenDim);
 
-W_decOut  = initMatrix(inputDim, hiddenDim, false, rand);     // xRecon = W_decOut * d2
-b_decOut  = initVector(inputDim);
-
-     }
+        W_decOut = initMatrix(inputDim, hiddenDim, false, rand);     // xRecon = W_decOut * d2
+        b_decOut = initVector(inputDim);
+    }
 
     public double trainBatch(double[][] xBatch, double[][] cBatch) {
         int batchSize = xBatch.length;
         double totalLoss = IntStream.range(0, batchSize).parallel()
-            .mapToDouble(i -> train(xBatch[i], cBatch[i]))
-            .sum();
+                .mapToDouble(i -> train(xBatch[i], cBatch[i]))
+                .sum();
         return totalLoss / batchSize;
     }
+
     /**
      * Perform one training step on a single (input, condition) pair. Includes
      * full forward + backward pass, with gradient clipping and numerical
@@ -239,8 +216,8 @@ b_decOut  = initVector(inputDim);
         }
 
         double klWeight = isUseCyclicalAnneal()
-            ? getCyclicalKLWeightSigmoid(currentEpoch.get(), getKlAnnealCycleLength(), maxKLWeight, getKlSharpness())
-            : getKLWeight(currentEpoch.get(), klWarmupEpochs, maxKLWeight, getKlSharpness());
+                ? getCyclicalKLWeightSigmoid(currentEpoch.get(), getKlAnnealCycleLength(), maxKLWeight, getKlSharpness())
+                : getKLWeight(currentEpoch.get(), klWarmupEpochs, maxKLWeight, getKlSharpness());
 
         double loss = reconLoss + klWeight * klLoss;
 
@@ -263,7 +240,6 @@ b_decOut  = initVector(inputDim);
         }
 
         // ===== Backward Pass =====
-
         // Grad from MSE loss
         mseGradient(buf.xRecon, x, buf.dL_dxRecon);
 
@@ -317,7 +293,6 @@ b_decOut  = initVector(inputDim);
         return loss;
     }
 
-  
     /**
      * Perform gradient descent updates for all weights and biases in the
      * 3-layer encoder and 2-layer decoder CVAE.
@@ -358,6 +333,7 @@ b_decOut  = initVector(inputDim);
         updateMatrix(W_decOut, d2, dL_dxRecon, getLearningRate());
         updateVector(b_decOut, dL_dxRecon, getLearningRate());
     }
+
     /**
      * Reconstructs an input vector from a given condition vector (e.g., MDS
      * embedding). Uses a standard Gaussian latent vector (z ~ N(0, I)) as the
@@ -379,6 +355,7 @@ b_decOut  = initVector(inputDim);
 
         return decode(z, condition);
     }
+
     /**
      * Decoder forward pass: latent vector + condition → reconstruction. Uses 3
      * hidden layers with ReLU activations followed by a linear output layer.
@@ -394,17 +371,22 @@ b_decOut  = initVector(inputDim);
         Random rand = threadLocalRandom.get();
         // Step 2: Hidden layer 1
         double[] h1 = relu(add(dot(zc, W_dec1), b_dec1)); // [hiddenDim]
-        if (useDropout && isIsTraining()) h1 = applyDropout(h1, dropoutRate, rand);
-        
+        if (useDropout && isIsTraining()) {
+            h1 = applyDropout(h1, dropoutRate, rand);
+        }
+
         // Step 3: Hidden layer 2
         double[] h2 = relu(add(dot(h1, W_dec2), b_dec2)); // [hiddenDim]
-        if (useDropout && isIsTraining()) h2 = applyDropout(h2, dropoutRate, rand);
-        
+        if (useDropout && isIsTraining()) {
+            h2 = applyDropout(h2, dropoutRate, rand);
+        }
+
         // Step 4: Final linear output (no activation)
         double[] out = add(dot(h2, W_decOut), b_decOut); // [inputDim]
 
         return out;
     }
+
     /**
      * Encoder forward pass: input + condition → deep hidden representation
      * using 3 hidden layers with ReLU activation.
@@ -419,15 +401,19 @@ b_decOut  = initVector(inputDim);
         Random rand = threadLocalRandom.get();
         // Step 2: Hidden layer 1
         double[] h1 = relu(add(dot(xc, W_enc1), b_enc1)); // [hiddenDim]
-        if (useDropout) h1 = applyDropout(h1, dropoutRate, rand);
-        
+        if (useDropout) {
+            h1 = applyDropout(h1, dropoutRate, rand);
+        }
+
         // Step 3: Hidden layer 2
         double[] h2 = relu(add(dot(h1, W_enc2), b_enc2)); // [hiddenDim]
-        if (useDropout) h2 = applyDropout(h2, dropoutRate, rand);
-        
+        if (useDropout) {
+            h2 = applyDropout(h2, dropoutRate, rand);
+        }
+
         return h2;
     }
-    
+
     /**
      * Deterministic inverse transform using zero latent vector. Useful for
      * evaluating the mean reconstruction.
