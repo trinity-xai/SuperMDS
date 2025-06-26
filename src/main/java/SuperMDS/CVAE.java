@@ -357,6 +357,62 @@ public class CVAE {
     }
 
     /**
+     * Estimates reconstruction confidence by sampling multiple latent vectors
+     * and measuring variance in the decoder's outputs.
+     *
+     * @param condition Condition vector used during decoding (e.g. MDS
+     * embedding)
+     * @param numSamples Number of latent samples to draw (e.g. 10–100)
+     * @return Variance vector (length inputDim) where lower values indicate
+     * higher confidence
+     */
+    public double[] confidenceEstimate(double[] condition, int numSamples) {
+        if (condition.length != conditionDim) {
+            throw new IllegalArgumentException("Condition vector must have dimension " + conditionDim);
+        }
+        if (numSamples <= 1) {
+            throw new IllegalArgumentException("Need at least 2 samples for confidence estimation.");
+        }
+
+        double[][] outputs = new double[numSamples][inputDim];
+        Random rng = threadLocalRandom.get();
+
+        // Sample reconstructions
+        for (int i = 0; i < numSamples; i++) {
+            double[] z = new double[latentDim];
+            for (int j = 0; j < latentDim; j++) {
+                z[j] = rng.nextGaussian();
+            }
+            outputs[i] = decode(z, condition);
+        }
+
+        // Compute mean
+        double[] mean = new double[inputDim];
+        for (int i = 0; i < numSamples; i++) {
+            for (int j = 0; j < inputDim; j++) {
+                mean[j] += outputs[i][j];
+            }
+        }
+        for (int j = 0; j < inputDim; j++) {
+            mean[j] /= numSamples;
+        }
+
+        // Compute variance
+        double[] variance = new double[inputDim];
+        for (int i = 0; i < numSamples; i++) {
+            for (int j = 0; j < inputDim; j++) {
+                double diff = outputs[i][j] - mean[j];
+                variance[j] += diff * diff;
+            }
+        }
+        for (int j = 0; j < inputDim; j++) {
+            variance[j] /= (numSamples - 1); // unbiased estimate
+        }
+
+        return variance; // Lower variance = higher confidence
+    }
+
+    /**
      * Decoder forward pass: latent vector + condition → reconstruction. Uses 3
      * hidden layers with ReLU activations followed by a linear output layer.
      *

@@ -14,7 +14,6 @@ import java.util.Arrays;
 public class CVAEInverseTest {
 
     public static void main(String[] args) {
-         
         // Example synthetic test case
         int numPoints = 1000;
         int inputDim = 10;      // Original high-dimensional space
@@ -75,7 +74,6 @@ public class CVAEInverseTest {
             cvae.setDebug(false);
             cvae.setUseDropout(false);
             cvae.setIsTraining(true);
-
             // Train the CVAE
             System.out.println("Training CVAE...");
             startTime = System.nanoTime();
@@ -104,16 +102,23 @@ public class CVAEInverseTest {
             printTotalTime(startTime);
             // Test inverseTransform
             double totalReconError = 0.0;
+            double totalMeanVar = 0.0;
             for (int i = 0; i < numPoints; i++) {
                 double[] recon = cvae.inverseTransform(conditions[i]);
     //            double[] recon = cvae.inverseTransform(mdsEmbedding[i]);
     //            double mse = mseLoss(originalData[i], recon);
                 double mse = mseLoss(normalizedData[i], recon);
                 totalReconError += mse;
+
+                double[] var = cvae.confidenceEstimate(conditions[i], 50);
+                totalMeanVar += Arrays.stream(var).average().orElse(Double.NaN);
+//                System.out.printf("Condition %d: Mean variance = %.6f\n", i, meanVar);                
             }
 
             double avgReconError = totalReconError / numPoints;
+            double avgMeanVariance = totalMeanVar / numPoints;
             System.out.printf("\nAverage Reconstruction MSE: %.6f%n", avgReconError);
+            System.out.printf("\nAverage Mean Variance: %.6f%n", avgMeanVariance);
         }
     }
 }
