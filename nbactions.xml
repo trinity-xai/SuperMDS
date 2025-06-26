@@ -10,8 +10,9 @@
                 <goal>org.codehaus.mojo:exec-maven-plugin:3.1.0:exec</goal>
             </goals>
             <properties>
-                <exec.vmArgs>--add-modules jdk.incubator.vector -agentlib:jdwp=transport=dt_socket,server=n,address=${jpda.address}</exec.vmArgs>
-                <exec.args>${exec.vmArgs} -classpath %classpath ${exec.mainClass} ${exec.appArgs}</exec.args>
+<!--                <exec.vmArgs>--add-modules jdk.incubator.vector -agentlib:jdwp=transport=dt_socket,server=n,address=${jpda.address}</exec.vmArgs>-->
+                 <exec.vmArgs>-agentlib:jdwp=transport=dt_socket,server=n,address=${jpda.address}</exec.vmArgs>
+               <exec.args>${exec.vmArgs} -classpath %classpath ${exec.mainClass} ${exec.appArgs}</exec.args>
                 <exec.appArgs></exec.appArgs>
                 <exec.mainClass>SuperMDS.CVAEInverseTest</exec.mainClass>
                 <exec.executable>java</exec.executable>
@@ -28,7 +29,7 @@
                 <goal>org.codehaus.mojo:exec-maven-plugin:3.1.0:exec</goal>
             </goals>
             <properties>
-                <exec.vmArgs>--add-modules jdk.incubator.vector</exec.vmArgs>
+<!--                <exec.vmArgs>--add-modules jdk.incubator.vector</exec.vmArgs>-->
                 <exec.args>${exec.vmArgs} -classpath %classpath ${exec.mainClass} ${exec.appArgs}</exec.args>
                 <exec.appArgs></exec.appArgs>
                 <exec.mainClass>SuperMDS.CVAEInverseTest</exec.mainClass>
@@ -45,7 +46,7 @@
                 <goal>org.codehaus.mojo:exec-maven-plugin:3.1.0:exec</goal>
             </goals>
             <properties>
-                <exec.vmArgs>--add-modules jdk.incubator.vector</exec.vmArgs>
+                <!--<exec.vmArgs>--add-modules jdk.incubator.vector</exec.vmArgs>-->
                 <exec.args>${exec.vmArgs} -classpath %classpath ${exec.mainClass} ${exec.appArgs}</exec.args>
                 <exec.mainClass>SuperMDS.CVAEInverseTest</exec.mainClass>
                 <exec.executable>java</exec.executable>

@@ -71,9 +71,7 @@ public class CVAEInverseTest {
 
         for(int outerLoop=0;outerLoop<10;outerLoop++) {
             // Initialize CVAE
-    //        CVAESIMD cvaeSIMD = new CVAESIMD(inputDim, embeddingDim, latentDim, hiddenDim);
             CVAE cvae = new CVAE(inputDim, embeddingDim, latentDim, hiddenDim);
-//            CVAEInPlace cvae = new CVAEInPlace(inputDim, embeddingDim, latentDim, hiddenDim);
             cvae.setDebug(false);
             cvae.setUseDropout(false);
             cvae.setIsTraining(true);
@@ -99,8 +97,6 @@ public class CVAEInverseTest {
                         cBatch[i] = conditions[idx];
                     }
                     totalLoss += cvae.trainBatch(xBatch, cBatch);
-//                    totalLoss += cvaeInPlace.trainBatch(xBatch, cBatch);
-    //                totalLoss += cvaeSIMD.trainBatchInPlaceSIMD(xBatch, cBatch);
                 }
             }
             cvae.setIsTraining(false);
@@ -110,8 +106,7 @@ public class CVAEInverseTest {
             double totalReconError = 0.0;
             for (int i = 0; i < numPoints; i++) {
                 double[] recon = cvae.inverseTransform(conditions[i]);
-    //            double[] recon = cvaeInPlace.inverseTransform(mdsEmbedding[i]);
-//                double[] recon = cvaeInPlace.inverseTransform(conditions[i]);
+    //            double[] recon = cvae.inverseTransform(mdsEmbedding[i]);
     //            double mse = mseLoss(originalData[i], recon);
                 double mse = mseLoss(normalizedData[i], recon);
                 totalReconError += mse;

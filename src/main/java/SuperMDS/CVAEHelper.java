@@ -9,6 +9,7 @@ import java.util.Random;
  * @author Sean Phillips
  */
 public class CVAEHelper {
+
     /**
      * Compute the current KL annealing weight using a sigmoid ramp-up schedule.
      * This method gradually increases the weight of the KL divergence term
@@ -118,32 +119,31 @@ public class CVAEHelper {
         return mat;
     }
 
-/**
- * Gradient descent update for weight matrix:
- * W[i][j] -= lr * grad[i] * input[j]
- * 
- * W: [outputDim][inputDim]
- * grad: gradient w.r.t. output layer activations (length = outputDim)
- * input: input vector to the layer (length = inputDim)
- */
-public static void updateMatrix(double[][] W, double[] input, double[] grad, double lr) {
-    int outputDim = W.length;
-    int inputDim = W[0].length;
+    /**
+     * Gradient descent update for weight matrix: W[i][j] -= lr * grad[i] *
+     * input[j]
+     *
+     * W: [outputDim][inputDim] grad: gradient w.r.t. output layer activations
+     * (length = outputDim) input: input vector to the layer (length = inputDim)
+     */
+    public static void updateMatrix(double[][] W, double[] input, double[] grad, double lr) {
+        int outputDim = W.length;
+        int inputDim = W[0].length;
 
-    if (grad.length != outputDim) {
-        throw new IllegalArgumentException("grad.length = " + grad.length + " but W.rows = " + outputDim);
-    }
-    if (input.length != inputDim) {
-        throw new IllegalArgumentException("input.length = " + input.length + " but W.cols = " + inputDim);
-    }
+        if (grad.length != outputDim) {
+            throw new IllegalArgumentException("grad.length = " + grad.length + " but W.rows = " + outputDim);
+        }
+        if (input.length != inputDim) {
+            throw new IllegalArgumentException("input.length = " + input.length + " but W.cols = " + inputDim);
+        }
 
-    for (int i = 0; i < outputDim; i++) {
-        double gi = grad[i];
-        for (int j = 0; j < inputDim; j++) {
-            W[i][j] -= lr * gi * input[j];
+        for (int i = 0; i < outputDim; i++) {
+            double gi = grad[i];
+            for (int j = 0; j < inputDim; j++) {
+                W[i][j] -= lr * gi * input[j];
+            }
         }
     }
-}
 
     // Gradient descent update: b += -lr * grad
     public static void updateVector(double[] b, double[] grad, double lr) {
@@ -151,7 +151,7 @@ public static void updateMatrix(double[][] W, double[] input, double[] grad, dou
             b[i] -= lr * grad[i];
         }
     }
-    
+
     public static double[] applyDropout(double[] input, double dropoutRate, Random rng) {
         double[] output = new double[input.length];
         for (int i = 0; i < input.length; i++) {
@@ -159,7 +159,7 @@ public static void updateMatrix(double[][] W, double[] input, double[] grad, dou
             output[i] = (rng.nextDouble() < dropoutRate) ? 0.0 : input[i] / (1.0 - dropoutRate);
         }
         return output;
-    }    
+    }
 
     public static int[] shuffledIndices(int n, Random rand) {
         int[] indices = new int[n];
@@ -205,225 +205,201 @@ public static void updateMatrix(double[][] W, double[] input, double[] grad, dou
         return z;
     }
 // In place operations variants    
-public static void reluInPlace(double[] x) {
-    for (int i = 0; i < x.length; i++) {
-        x[i] = Math.max(0.0, Math.min(50.0, x[i]));
-    }
-}    
-public static void addMatrixInPlace(double[][] target, double[][] src) {
-    for (int i = 0; i < target.length; i++) {
-        for (int j = 0; j < target[i].length; j++) {
-            target[i][j] += src[i][j];
+
+    public static void reluInPlace(double[] x) {
+        for (int i = 0; i < x.length; i++) {
+            x[i] = Math.max(0.0, Math.min(50.0, x[i]));
         }
     }
-}
 
-public static void addVectorInPlace(double[] target, double[] src) {
-    for (int i = 0; i < target.length; i++) {
-        target[i] += src[i];
-    }
-}
-public static void addInPlace(double[] a, double[] b) {
-    for (int i = 0; i < a.length; i++) {
-        a[i] += b[i];
-    }
-}
-public static void addInPlace(double[] a, double[] b, double[] out) {
-    if (a.length != b.length || a.length != out.length) {
-        throw new IllegalArgumentException("Dimension mismatch in addInPlace");
-    }
-
-    for (int i = 0; i < a.length; i++) {
-        out[i] = a[i] + b[i];
-        if (Double.isNaN(out[i]) || Double.isInfinite(out[i])) {
-            throw new RuntimeException("addInPlace: NaN or Inf at index " + i);
+    public static void addMatrixInPlace(double[][] target, double[][] src) {
+        for (int i = 0; i < target.length; i++) {
+            for (int j = 0; j < target[i].length; j++) {
+                target[i][j] += src[i][j];
+            }
         }
     }
-}
-/**
- * Computes out = A · x where A is [outDim][inDim] and x is [inDim].
- * Result is written into out[] of length outDim.
- */
-public static void dot(double[] x, double[][] A, double[] out) {
-    int outDim = A.length;
-    int inDim = x.length;
-    for (int i = 0; i < outDim; i++) {
-        double sum = 0.0;
-        for (int j = 0; j < inDim; j++) {
-            sum += A[i][j] * x[j];
-        }
-        out[i] = sum;
-    }
-}
-/**
- * Computes out = Aᵗ · x where A is [outDim][inDim] and x is [outDim].
- * Result is written into out[] of length inDim.
- */
-public static void dotT(double[] x, double[][] A, double[] out) {
-    int outDim = A.length;       // rows of A
-    int inDim = A[0].length;     // columns of A
 
-    Arrays.fill(out, 0.0);       // important: zero out accumulator
-
-    for (int i = 0; i < outDim; i++) {
-        double xi = x[i];
-        for (int j = 0; j < inDim; j++) {
-            out[j] += A[i][j] * xi;
+    public static void addVectorInPlace(double[] target, double[] src) {
+        for (int i = 0; i < target.length; i++) {
+            target[i] += src[i];
         }
     }
-}
 
- 
-public static void reluGradInPlace(double[] output, double[] upstream, double[] out) {
-    for (int i = 0; i < output.length; i++) {
-        out[i] = output[i] > 0.0 ? upstream[i] : 0.0;
-    }
-}
-/**
- * Computes dL/dPred = (2 / n) * (pred - target), stored in out[].
- * Assumes pred.length == target.length == out.length.
- */
-public static void mseGradient(double[] pred, double[] target, double[] out) {
-    int n = pred.length;
-    double scale = 2.0 / n;
-    for (int i = 0; i < n; i++) {
-        out[i] = scale * (pred[i] - target[i]);
-    }
-}
-public static void concatInPlace(double[] a, double[] b, double[] out) {
-    System.arraycopy(a, 0, out, 0, a.length);
-    System.arraycopy(b, 0, out, a.length, b.length);
-}
-public static void clipGradientInPlace(double[] grad, double clipVal) {
-    if (clipVal <= 0.0) return;
-    double norm = 0.0;
-    for (double v : grad) norm += v * v;
-    norm = Math.sqrt(norm);
-    if (norm > clipVal) {
-        double scale = clipVal / norm;
-        for (int i = 0; i < grad.length; i++) {
-            grad[i] *= scale;
+    public static void addInPlace(double[] a, double[] b) {
+        for (int i = 0; i < a.length; i++) {
+            a[i] += b[i];
         }
     }
-}
-public static void sampleLatentInPlace(double[] mu, double[] logvar, double[] out, Random rng) {
-    if (mu.length != logvar.length || mu.length != out.length) {
-        throw new IllegalArgumentException("Dimension mismatch in sampleLatentInPlace");
+
+    public static void addInPlace(double[] a, double[] b, double[] out) {
+        if (a.length != b.length || a.length != out.length) {
+            throw new IllegalArgumentException("Dimension mismatch in addInPlace");
+        }
+
+        for (int i = 0; i < a.length; i++) {
+            out[i] = a[i] + b[i];
+            if (Double.isNaN(out[i]) || Double.isInfinite(out[i])) {
+                throw new RuntimeException("addInPlace: NaN or Inf at index " + i);
+            }
+        }
     }
 
-    for (int i = 0; i < mu.length; i++) {
-        double std = Math.exp(0.5 * logvar[i]);
-        double eps = rng.nextGaussian(); // standard normal sample
-        out[i] = mu[i] + std * eps;
+    /**
+     * Computes out = A · x where A is [outDim][inDim] and x is [inDim]. Result
+     * is written into out[] of length outDim.
+     */
+    public static void dot(double[] x, double[][] A, double[] out) {
+        int outDim = A.length;
+        int inDim = x.length;
+        for (int i = 0; i < outDim; i++) {
+            double sum = 0.0;
+            for (int j = 0; j < inDim; j++) {
+                sum += A[i][j] * x[j];
+            }
+            out[i] = sum;
+        }
     }
-}
-public static void applyDropoutInPlace(double[] x, double rate, Random rng) {
-    if (rate <= 0.0) return; // No-op if dropout is disabled
 
-    double scale = 1.0 / (1.0 - rate);
-    for (int i = 0; i < x.length; i++) {
-        x[i] = rng.nextDouble() < rate ? 0.0 : x[i] * scale;
+    /**
+     * Computes out = Aᵗ · x where A is [outDim][inDim] and x is [outDim].
+     * Result is written into out[] of length inDim.
+     */
+    public static void dotT(double[] x, double[][] A, double[] out) {
+        int outDim = A.length;       // rows of A
+        int inDim = A[0].length;     // columns of A
+
+        Arrays.fill(out, 0.0);       // important: zero out accumulator
+
+        for (int i = 0; i < outDim; i++) {
+            double xi = x[i];
+            for (int j = 0; j < inDim; j++) {
+                out[j] += A[i][j] * xi;
+            }
+        }
     }
-}
+
+    public static void reluGradInPlace(double[] output, double[] upstream, double[] out) {
+        for (int i = 0; i < output.length; i++) {
+            out[i] = output[i] > 0.0 ? upstream[i] : 0.0;
+        }
+    }
+
+    /**
+     * Computes dL/dPred = (2 / n) * (pred - target), stored in out[]. Assumes
+     * pred.length == target.length == out.length.
+     */
+    public static void mseGradient(double[] pred, double[] target, double[] out) {
+        int n = pred.length;
+        double scale = 2.0 / n;
+        for (int i = 0; i < n; i++) {
+            out[i] = scale * (pred[i] - target[i]);
+        }
+    }
+
+    public static void concatInPlace(double[] a, double[] b, double[] out) {
+        System.arraycopy(a, 0, out, 0, a.length);
+        System.arraycopy(b, 0, out, a.length, b.length);
+    }
+
+    public static void clipGradientInPlace(double[] grad, double clipVal) {
+        if (clipVal <= 0.0) {
+            return;
+        }
+        double norm = 0.0;
+        for (double v : grad) {
+            norm += v * v;
+        }
+        norm = Math.sqrt(norm);
+        if (norm > clipVal) {
+            double scale = clipVal / norm;
+            for (int i = 0; i < grad.length; i++) {
+                grad[i] *= scale;
+            }
+        }
+    }
+
+    public static void sampleLatentInPlace(double[] mu, double[] logvar, double[] out, Random rng) {
+        if (mu.length != logvar.length || mu.length != out.length) {
+            throw new IllegalArgumentException("Dimension mismatch in sampleLatentInPlace");
+        }
+
+        for (int i = 0; i < mu.length; i++) {
+            double std = Math.exp(0.5 * logvar[i]);
+            double eps = rng.nextGaussian(); // standard normal sample
+            out[i] = mu[i] + std * eps;
+        }
+    }
+
+    public static void applyDropoutInPlace(double[] x, double rate, Random rng) {
+        if (rate <= 0.0) {
+            return; // No-op if dropout is disabled
+        }
+        double scale = 1.0 / (1.0 - rate);
+        for (int i = 0; i < x.length; i++) {
+            x[i] = rng.nextDouble() < rate ? 0.0 : x[i] * scale;
+        }
+    }
 // Accumulate gradient of outer product into gradMatrix
-public static void accumulateOuterProduct(double[][] gradMatrix, double[] input, double[] gradOut) {
-    for (int i = 0; i < input.length; i++) {
-        double inVal = input[i];
-        for (int j = 0; j < gradOut.length; j++) {
-            gradMatrix[i][j] += inVal * gradOut[j];
+
+    public static void accumulateOuterProduct(double[][] gradMatrix, double[] input, double[] gradOut) {
+        for (int i = 0; i < input.length; i++) {
+            double inVal = input[i];
+            for (int j = 0; j < gradOut.length; j++) {
+                gradMatrix[i][j] += inVal * gradOut[j];
+            }
         }
     }
-}
 
-public static void accumulateMatrix(double[][] target, double[][] source) {
-    for (int i = 0; i < target.length; i++) {
-        for (int j = 0; j < target[i].length; j++) {
-            target[i][j] += source[i][j];
+    public static void accumulateMatrix(double[][] target, double[][] source) {
+        for (int i = 0; i < target.length; i++) {
+            for (int j = 0; j < target[i].length; j++) {
+                target[i][j] += source[i][j];
+            }
         }
     }
-}
 
-public static void accumulateVector(double[] target, double[] source) {
-    for (int i = 0; i < target.length; i++) {
-        target[i] += source[i];
+    public static void accumulateVector(double[] target, double[] source) {
+        for (int i = 0; i < target.length; i++) {
+            target[i] += source[i];
+        }
     }
-}
 
 // Apply the accumulated gradients once
-public static void applyUpdate(double[][] W, double[][] gradW, double lr) {
-    for (int i = 0; i < W.length; i++) {
-        for (int j = 0; j < W[i].length; j++) {
-            W[i][j] -= lr * gradW[i][j];
+    public static void applyUpdate(double[][] W, double[][] gradW, double lr) {
+        for (int i = 0; i < W.length; i++) {
+            for (int j = 0; j < W[i].length; j++) {
+                W[i][j] -= lr * gradW[i][j];
+            }
         }
     }
-}
 
-public static void applyUpdate(double[] b, double[] gradB, double lr) {
-    for (int i = 0; i < b.length; i++) {
-        b[i] -= lr * gradB[i];
-    }
-}
-
-public static void accumulateBias(double[] gradB, double[] gradOut) {
-    for (int i = 0; i < gradB.length; i++) {
-        gradB[i] += gradOut[i];
-    }
-}
-public static void scaleMatrixInPlace(double[][] mat, double scale) {
-    for (int i = 0; i < mat.length; i++) {
-        for (int j = 0; j < mat[i].length; j++) {
-            mat[i][j] *= scale;
+    public static void applyUpdate(double[] b, double[] gradB, double lr) {
+        for (int i = 0; i < b.length; i++) {
+            b[i] -= lr * gradB[i];
         }
     }
-}
 
-public static void scaleVectorInPlace(double[] vec, double scale) {
-    for (int i = 0; i < vec.length; i++) {
-        vec[i] *= scale;
+    public static void accumulateBias(double[] gradB, double[] gradOut) {
+        for (int i = 0; i < gradB.length; i++) {
+            gradB[i] += gradOut[i];
+        }
     }
-}
-public static void accumulateInto(BufferSet target, BufferSet source) {
-    // --- Encoder ---
-    accumulateMatrix(target.grad_W_enc1, source.grad_W_enc1);
-    accumulateVector(target.grad_b_enc1, source.grad_b_enc1);
 
-    accumulateMatrix(target.grad_W_enc2, source.grad_W_enc2);
-    accumulateVector(target.grad_b_enc2, source.grad_b_enc2);
+    public static void scaleMatrixInPlace(double[][] mat, double scale) {
+        for (int i = 0; i < mat.length; i++) {
+            for (int j = 0; j < mat[i].length; j++) {
+                mat[i][j] *= scale;
+            }
+        }
+    }
 
-    accumulateMatrix(target.grad_W_mu, source.grad_W_mu);
-    accumulateVector(target.grad_b_mu, source.grad_b_mu);
+    public static void scaleVectorInPlace(double[] vec, double scale) {
+        for (int i = 0; i < vec.length; i++) {
+            vec[i] *= scale;
+        }
+    }
 
-    accumulateMatrix(target.grad_W_logvar, source.grad_W_logvar);
-    accumulateVector(target.grad_b_logvar, source.grad_b_logvar);
-
-    // --- Decoder ---
-    accumulateMatrix(target.grad_W_dec1, source.grad_W_dec1);
-    accumulateVector(target.grad_b_dec1, source.grad_b_dec1);
-
-    accumulateMatrix(target.grad_W_dec2, source.grad_W_dec2);
-    accumulateVector(target.grad_b_dec2, source.grad_b_dec2);
-
-    accumulateMatrix(target.grad_W_decOut, source.grad_W_decOut);
-    accumulateVector(target.grad_b_decOut, source.grad_b_decOut);
-}
-
-public static void scaleGradientsInPlace(BufferSet buf, double scale) {
-    scaleMatrixInPlace(buf.grad_W_enc1, scale);
-    scaleVectorInPlace(buf.grad_b_enc1, scale);
-    scaleMatrixInPlace(buf.grad_W_enc2, scale);
-    scaleVectorInPlace(buf.grad_b_enc2, scale);
-    scaleMatrixInPlace(buf.grad_W_mu, scale);
-    scaleVectorInPlace(buf.grad_b_mu, scale);
-    scaleMatrixInPlace(buf.grad_W_logvar, scale);
-    scaleVectorInPlace(buf.grad_b_logvar, scale);
-
-    scaleMatrixInPlace(buf.grad_W_dec1, scale);
-    scaleVectorInPlace(buf.grad_b_dec1, scale);
-    scaleMatrixInPlace(buf.grad_W_dec2, scale);
-    scaleVectorInPlace(buf.grad_b_dec2, scale);
-    scaleMatrixInPlace(buf.grad_W_decOut, scale);
-    scaleVectorInPlace(buf.grad_b_decOut, scale);
-}
     /**
      * Compute the gradient of the ReLU activation function using the output as
      * a mask. This is the elementwise product of the upstream gradient and the
@@ -440,7 +416,8 @@ public static void scaleGradientsInPlace(BufferSet buf, double scale) {
             grad[i] = output[i] > 0.0 ? upstream[i] : 0.0;
         }
         return grad;
-    }    
+    }
+
     public static double[] relu(double[] x) {
         double[] out = new double[x.length];
         for (int i = 0; i < x.length; i++) {
@@ -469,26 +446,26 @@ public static void scaleGradientsInPlace(BufferSet buf, double scale) {
         return out;
     }
 
-/**
- * Compute matrix product y = W · x, where W is [out][in], x is [in]
- * Returns y: [out]
- */
-public static double[] dot(double[] x, double[][] W) {
-    if (x.length != W[0].length) {
-        throw new IllegalArgumentException("dot(): x.length=" + x.length + " but W.cols=" + W[0].length);
-    }
-    int outDim = W.length;
-    int inDim = x.length;
-    double[] out = new double[outDim];
-    for (int i = 0; i < outDim; i++) {
-        double sum = 0.0;
-        for (int j = 0; j < inDim; j++) {
-            sum += W[i][j] * x[j];
+    /**
+     * Compute matrix product y = W · x, where W is [out][in], x is [in] Returns
+     * y: [out]
+     */
+    public static double[] dot(double[] x, double[][] W) {
+        if (x.length != W[0].length) {
+            throw new IllegalArgumentException("dot(): x.length=" + x.length + " but W.cols=" + W[0].length);
         }
-        out[i] = sum;
+        int outDim = W.length;
+        int inDim = x.length;
+        double[] out = new double[outDim];
+        for (int i = 0; i < outDim; i++) {
+            double sum = 0.0;
+            for (int j = 0; j < inDim; j++) {
+                sum += W[i][j] * x[j];
+            }
+            out[i] = sum;
+        }
+        return out;
     }
-    return out;
-}
 
     /**
      * Compute dot product of gradient vector dy with transpose of weight matrix
@@ -561,22 +538,24 @@ public static double[] dot(double[] x, double[][] W) {
             }
         }
     }
+
     public static void assertShape(double[][] matrix, int expectedRows, int expectedCols, String name) {
         if (matrix.length != expectedRows || matrix[0].length != expectedCols) {
             throw new IllegalArgumentException(
-                String.format("Shape mismatch in %s: expected [%d][%d], found [%d][%d]",
-                    name, expectedRows, expectedCols, matrix.length, matrix[0].length));
+                    String.format("Shape mismatch in %s: expected [%d][%d], found [%d][%d]",
+                            name, expectedRows, expectedCols, matrix.length, matrix[0].length));
         }
     }
 
     public static void assertLength(double[] vector, int expectedLength, String name) {
         if (vector.length != expectedLength) {
             throw new IllegalArgumentException(
-                String.format("Length mismatch in %s: expected %d, found %d",
-                    name, expectedLength, vector.length));
+                    String.format("Length mismatch in %s: expected %d, found %d",
+                            name, expectedLength, vector.length));
         }
     }
-        /**
+
+    /**
      * Compute mean squared error loss between vectors a and b
      */
     public static double mseLoss(double[] target, double[] predicted) {
