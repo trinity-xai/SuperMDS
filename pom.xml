@@ -41,16 +41,6 @@
 
     <dependencies>
         <dependency>
-            <groupId>org.openjfx</groupId>
-            <artifactId>javafx-graphics</artifactId>
-            <version>${javafx.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.openjfx</groupId>
-            <artifactId>javafx-controls</artifactId>
-            <version>${javafx.version}</version>
-        </dependency>
-        <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-math3</artifactId>
             <version>${apache.commons.math3.version}</version>
@@ -124,36 +114,6 @@
                         <version>${junit.jupiter.version}</version>
                     </dependency>
                 </dependencies>
-            </plugin>
-            <plugin>
-                <groupId>org.openjfx</groupId>
-                <artifactId>javafx-maven-plugin</artifactId>
-                <version>${javafx.maven.plugin.version}</version>
-                <configuration>
-                    <mainClass>${mainClassName}</mainClass>
-                    <includePathExceptionsInClasspath>true</includePathExceptionsInClasspath>
-                </configuration>
-                <executions>
-                    <execution>
-                        <id>default-cli</id>
-                        <configuration>
-                            <mainClass>${mainClassName}</mainClass>
-                            <includePathExceptionsInClasspath>true</includePathExceptionsInClasspath>
-                        </configuration>
-                    </execution>
-                    <execution>
-                        <id>debug</id>
-                        <configuration>
-                            <debug>true</debug>
-                            <debuglevel>lines,vars,source</debuglevel>
-                            <options>
-                                <option>-agentlib:jdwp=transport=dt_socket,server=n,address=${jpda.address}</option>
-                            </options>
-                            <mainClass>${mainClassName}</mainClass>
-                            <includePathExceptionsInClasspath>true</includePathExceptionsInClasspath>
-                        </configuration>
-                    </execution>
-                </executions>
             </plugin>
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>

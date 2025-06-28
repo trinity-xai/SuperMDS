@@ -3,7 +3,6 @@ package SuperMDS;
 import static SuperMDS.CVAEHelper.generateRandomData;
 import static SuperMDS.CVAEHelper.mseLoss;
 import static SuperMDS.CVAEHelper.shuffledIndices;
-import static SuperMDS.SuperMDSApp.printTotalTime;
 import java.util.Arrays;
 
 /**
@@ -121,4 +120,19 @@ public class CVAEInverseTest {
             System.out.printf("\nAverage Mean Variance: %.6f%n", avgMeanVariance);
         }
     }
+    public static void printTotalTime(long startTime) {
+        System.out.println(totalTimeString(startTime));
+    }      
+    public static String totalTimeString(long startTime) {
+        long estimatedTime = System.nanoTime() - startTime;
+        long totalNanos = estimatedTime;
+        long s = totalNanos / 1000000000;
+        totalNanos -= s * 1000000000;
+        long ms = totalNanos / 1000000;
+        totalNanos -= ms * 1000000;
+
+        long us = totalNanos / 1000;
+        totalNanos -= us * 1000;
+        return "Total elapsed time: " + s + ":s:" + ms + ":ms:" + us + ":us:" + totalNanos + ":ns";
+    }    
 }

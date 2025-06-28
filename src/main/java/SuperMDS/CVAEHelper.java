@@ -137,10 +137,13 @@ public class CVAEHelper {
             throw new IllegalArgumentException("input.length = " + input.length + " but W.cols = " + inputDim);
         }
 
+        double gi = 0;
+        double scale = 0;
         for (int i = 0; i < outputDim; i++) {
-            double gi = grad[i];
+            gi = grad[i];
+            scale = lr * gi;
             for (int j = 0; j < inputDim; j++) {
-                W[i][j] -= lr * gi * input[j];
+                W[i][j] -= scale * input[j];
             }
         }
     }
