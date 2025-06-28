@@ -1,0 +1,15 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="SuperMDSMainMaven" type="Application" factoryName="Application">
+    <option name="MAIN_CLASS_NAME" value="com.github.trinity.supermds.CVAEInverseTest" />
+    <module name="supermds" />
+    <extension name="coverage">
+      <pattern>
+        <option name="PATTERN" value="com.github.trinity.*" />
+        <option name="ENABLED" value="true" />
+      </pattern>
+    </extension>
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>
