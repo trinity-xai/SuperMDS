@@ -1,9 +1,9 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
-    <groupId>SuperMDS</groupId>
-    <artifactId>SuperMDS</artifactId>
-    <version>${revision}</version>
+    <groupId>com.github.trinity</groupId>
+    <artifactId>supermds</artifactId>
+    <version>${revision}${changelist}</version>
     <packaging>jar</packaging>
 
     <name>${project.artifactId}-${project.version}</name>
@@ -13,30 +13,38 @@
     <properties>
         <!-- https://maven.apache.org/maven-ci-friendly.html -->
         <revision>${maven.build.timestamp}</revision>
+        <changelist/>
+        <!-- Metadata Properties -->
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+        <license.licenceFile>LICENSE.md</license.licenceFile>
+        <license.licenseName>apache_v2</license.licenseName>
+        <mainClassName>com.github.trinity.supermds.CVAEInverseTest</mainClassName>
+        <!-- Build Properties -->
         <java.version>21</java.version>
-        <javafx.version>21.0.6</javafx.version>
+        <javafx.version>21.0.7</javafx.version>
+        <maven.min.version>3.8.8</maven.min.version>
+        <maven.compiler.source>${java.version}</maven.compiler.source>
+        <maven.compiler.target>${java.version}</maven.compiler.target>
+        <maven.compiler.release>${java.version}</maven.compiler.release>
+        <maven.build.timestamp.format>yyyy.MM.dd</maven.build.timestamp.format>
+        <maven.compiler.plugin.version>3.14.0</maven.compiler.plugin.version>
+        <maven.enforcer.plugin.version>3.5.0</maven.enforcer.plugin.version>
+        <maven.assembly.plugin.version>3.7.1</maven.assembly.plugin.version>
+        <maven.surefire.plugin.version>3.5.3</maven.surefire.plugin.version>
+        <maven.site.plugin.version>4.0.0-M16</maven.site.plugin.version>
+        <javafx.maven.plugin.version>0.0.8</javafx.maven.plugin.version>
+        <codehaus.license.plugin.version>2.2.0</codehaus.license.plugin.version>
+        <codehaus.flatten.plugin.version>1.7.1</codehaus.flatten.plugin.version>
+        <codehaus.build.helper.maven.plugin.version>3.6.1</codehaus.build.helper.maven.plugin.version>
+        <git.commit.maven.plugin.version>9.0.2</git.commit.maven.plugin.version>
+        <!-- Testing Properties -->
+        <junit.jupiter.version>5.13.2</junit.jupiter.version>
+        <junit.jupiter.platform.version>1.13.2</junit.jupiter.platform.version>
+        <!-- Implementation Properties -->
         <slf4j.version>2.0.17</slf4j.version>
         <apache.commons.math3.version>3.6.1</apache.commons.math3.version>
         <apache.commons.lang3.version>3.17.0</apache.commons.lang3.version>
-		
-        <maven.min.version>3.6.3</maven.min.version>
-        <maven.compiler.release>23</maven.compiler.release>
-        <maven.build.timestamp.format>yyyy.MM.dd</maven.build.timestamp.format>
-        <maven.compiler.plugin.version>3.11.0</maven.compiler.plugin.version>
-        <maven.enforcer.plugin.version>3.3.0</maven.enforcer.plugin.version>
-        <maven.assembly.plugin.version>3.6.0</maven.assembly.plugin.version>
-        <maven.surefire.plugin.version>3.1.2</maven.surefire.plugin.version>
-        <javafx.maven.plugin.version>0.0.8</javafx.maven.plugin.version>
-        <codehaus.license.plugin.version>2.2.0</codehaus.license.plugin.version>
-        <codehaus.flatten.plugin.version>1.5.0</codehaus.flatten.plugin.version>
-        <codehaus.build.helper.maven.plugin.version>3.4.0</codehaus.build.helper.maven.plugin.version>
-        <git.commit.maven.plugin.version>6.0.0</git.commit.maven.plugin.version>
-        <junit.jupiter.version>5.10.0</junit.jupiter.version>
-        <license.licenceFile>LICENSE.md</license.licenceFile>
-        <license.licenseName>apache_v2</license.licenseName>
-        <mainClassName>SuperMDSMain</mainClassName>
     </properties>
 
     <dependencies>
@@ -50,28 +58,47 @@
             <artifactId>commons-lang3</artifactId>
             <version>${apache.commons.lang3.version}</version>
         </dependency>
-        <!-- Enforce slf4j-api version across dependencies-->
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
             <version>${slf4j.version}</version>
-        </dependency>                
+        </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter-api</artifactId>
+            <artifactId>junit-jupiter</artifactId>
             <version>${junit.jupiter.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter-params</artifactId>
-            <version>${junit.jupiter.version}</version>
+            <groupId>org.junit.platform</groupId>
+            <artifactId>junit-platform-suite</artifactId>
+            <version>${junit.jupiter.platform.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.platform</groupId>
+            <artifactId>junit-platform-launcher</artifactId>
+            <version>${junit.jupiter.platform.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <distributionManagement>
+        <repository>
+            <id>github</id>
+            <name>GitHub Maven Packages</name>
+            <url>https://maven.pkg.github.com/trinity-xai/SuperMDS</url>
+        </repository>
+    </distributionManagement>
+
     <build>
 
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-site-plugin</artifactId>
+                <version>${maven.site.plugin.version}</version>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-enforcer-plugin</artifactId>
@@ -96,12 +123,6 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>${maven.compiler.plugin.version}</version>
-<!--                <configuration>
-                  <compilerArgs>
-                    <arg>- -add-modules</arg>
-                    <arg>jdk.incubator.vector</arg>
-                  </compilerArgs>
-                </configuration>-->
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -114,6 +135,20 @@
                         <version>${junit.jupiter.version}</version>
                     </dependency>
                 </dependencies>
+            </plugin>
+            <plugin>
+                <groupId>io.github.git-commit-id</groupId>
+                <artifactId>git-commit-id-maven-plugin</artifactId>
+                <version>${git.commit.maven.plugin.version}</version>
+                <executions>
+                    <execution>
+                        <id>get-the-git-infos</id>
+                        <goals>
+                            <goal>revision</goal>
+                        </goals>
+                        <phase>validate</phase>
+                    </execution>
+                </executions>
             </plugin>
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>

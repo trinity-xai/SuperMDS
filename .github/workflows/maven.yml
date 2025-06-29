@@ -1,0 +1,107 @@
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-java-with-maven
+
+name: Maven Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  release:
+    types:
+      - published
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: maven-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+
+  build-jar:
+
+    name: jar / ${{ matrix.os }} / ${{ matrix.jdk-version }}
+    runs-on: ${{ matrix.os }}
+
+    # This is a cross-platform jar, one distribution for now
+    strategy:
+      fail-fast: false
+      matrix:
+        jdk-version: [ 21 ]
+        os:
+          - ubuntu-latest
+
+    steps:
+
+      - uses: actions/checkout@v4
+
+      - name: set up jdk ${{ matrix.jdk-version }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ matrix.jdk-version }}
+          distribution: 'temurin'
+          server-id: github
+          settings-path: ${{ github.workspace }}
+
+      - name: Cache Maven repository
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-${{ runner.arch }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-maven-
+
+      - name: Maven Build Jar
+        run: ./mvnw -V -B -e -ff -ntp clean package
+
+      - name: Upload Jar
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: java-${{ matrix.jdk-version }}-${{ runner.os }}-${{ runner.arch }}-jar
+          path: target/*.jar
+          retention-days: 10
+          if-no-files-found: error
+
+      - name: Publish Snapshot to Github Package Registry
+        if: runner.os == 'Linux' && github.ref == 'refs/heads/main' && github.event_name != 'release'
+        run: ./mvnw -V -B -e -ff -ntp -s ${{ github.workspace }}/settings.xml -Dchangelist=-${GITHUB_SHA::7}-SNAPSHOT deploy
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Publish Release to Github Package Registry
+        if: runner.os == 'Linux' && github.event_name == 'release'
+        run: ./mvnw -V -B -e -ff -ntp -s ${{ github.workspace }}/settings.xml -Dchangelist=-${GITHUB_SHA::7} deploy
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Publish Release Artifacts
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_NAME: supermds-${{ runner.os }}-${{ runner.arch }}-java-${{ matrix.jdk-version }}
+          RELEASE_SLIM_NAME: supermds-java-${{ matrix.jdk-version }}-slim
+        shell: bash
+        run: |
+          mv target/supermds-*-${GITHUB_SHA::7}.jar "${RELEASE_NAME}.jar"
+          if [[ "${RUNNER_OS}" == "macOS" ]]; then
+            zip "${RELEASE_NAME}-jar.zip" "${RELEASE_NAME}.jar"
+          elif [[ "${RUNNER_OS}" == "Windows" ]]; then
+            7z a "${RELEASE_NAME}-jar.zip" "${RELEASE_NAME}.jar"
+          elif [[ "${RUNNER_OS}" == "Linux" ]]; then
+            zip "${RELEASE_NAME}-jar.zip" "${RELEASE_NAME}.jar"
+            zip "${RELEASE_SLIM_NAME}-jar.zip" "${RELEASE_NAME}.jar"
+            gh release upload "${{ github.ref_name }}" "${RELEASE_SLIM_NAME}-jar.zip"
+          else
+            exit 1
+          fi
+          gh release upload "${{ github.ref_name }}" "${RELEASE_NAME}-jar.zip"
